@@ -1,0 +1,17 @@
+name: RinDX CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinGPU
+          path: RinGPU
+      - run: cmake -S . -B build -DRINGPU_DIR="$GITHUB_WORKSPACE/RinGPU"
+      - run: cmake --build build --parallel
