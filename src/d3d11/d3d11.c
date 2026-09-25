@@ -110,6 +110,13 @@ int rindx_d3d11_destroy_device(RinDxD3d11Device* device)
     return RIN_GPU_OK;
 }
 
+int rindx_d3d11_get_adapter_info(const RinDxD3d11Device* device,
+                                 RinGpuAdapterInfoV1* info)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_get_adapter_info(device->runtime, info);
+}
+
 int rindx_d3d11_create_device_and_swapchain(
     const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,

@@ -95,6 +95,11 @@ int rindx_d3d11_create_device_and_swapchain(
     RinDxD3d11Device* device_out,
     RinGpuDxgiSwapchainRuntime* swapchain_out);
 int rindx_d3d11_destroy_device(RinDxD3d11Device* device);
+/* Bounded adapter selection is sourced from the validated RinGPU adapter
+ * descriptor used to create this device. Native multi-adapter DXGI
+ * enumeration remains a separate boundary. */
+int rindx_d3d11_get_adapter_info(const RinDxD3d11Device* device,
+                                 RinGpuAdapterInfoV1* info);
 /* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
  * HRESULT translation and physical reset are separate boundaries. */
 int rindx_d3d11_get_device_removed_reason(

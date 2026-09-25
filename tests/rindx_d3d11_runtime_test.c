@@ -340,6 +340,7 @@ int main(void)
     RinGpuPresentationSubmitV1 swapchain_submit_desc;
     RinGpuPresentationCompletionV1 swapchain_completion;
     RinGpuDxgiSwapchainBufferV1 swapchain_buffer;
+    RinGpuAdapterInfoV1 adapter_info;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle sample_fragment_shader = 0u;
@@ -422,6 +423,13 @@ int main(void)
                 surface.reserved0, (unsigned long long)surface.reserved[0],
                 (unsigned long long)surface.reserved[1]);
     CHECK(create_result == RIN_GPU_OK);
+    memset(&adapter_info, 0, sizeof(adapter_info));
+    adapter_info.abi_version = RIN_GPU_ABI_VERSION;
+    adapter_info.struct_size = sizeof(adapter_info);
+    CHECK(rindx_d3d11_get_adapter_info(&device, &adapter_info) == RIN_GPU_OK);
+    CHECK(adapter_info.queue_capabilities ==
+          (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
+           RIN_GPU_QUEUE_GRAPHICS));
     memset(&swapchain_output, 0, sizeof(swapchain_output));
     swapchain_output.struct_size = sizeof(swapchain_output);
     swapchain_output.version = RIN_GPU_PRESENTATION_VERSION;
