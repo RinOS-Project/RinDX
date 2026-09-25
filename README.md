@@ -38,6 +38,10 @@ access, resource usage, lifetime, and subresource validation remain in RinGPU,
 and the draw writes/readbacks the storage image. Invalid or unsupported view
 forms remain errors rather than fabricated native COM views.
 
+The bounded D3D11/D3D12 pipeline owners also pass validated blend factors and
+operations to RinGPU; the runtime tests cover a real enabled blend state and
+reject an invalid factor before pipeline creation.
+
 Build:
 
 ```sh

@@ -234,6 +234,7 @@ int main(void)
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
+    RinGpuHandle invalid_pipeline = 0u;
     RinGpuHandle compute_shader = 0u;
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
@@ -304,6 +305,13 @@ int main(void)
     pipeline_desc.base.primitive_topology = RIN_GPU_PRIMITIVE_POINT_LIST;
     pipeline_desc.base.position_output_location = 0u;
     pipeline_desc.base.color_write_mask = RIN_GPU_COLOR_WRITE_ALL;
+    pipeline_desc.base.blend_enabled = 1u;
+    pipeline_desc.base.source_color_factor = RIN_GPU_BLEND_ONE;
+    pipeline_desc.base.destination_color_factor = RIN_GPU_BLEND_ZERO;
+    pipeline_desc.base.color_operation = RIN_GPU_BLEND_ADD;
+    pipeline_desc.base.source_alpha_factor = RIN_GPU_BLEND_ONE;
+    pipeline_desc.base.destination_alpha_factor = RIN_GPU_BLEND_ZERO;
+    pipeline_desc.base.alpha_operation = RIN_GPU_BLEND_ADD;
     pipeline_desc.base.cull_mode = RIN_GPU_CULL_NONE;
     pipeline_desc.base.front_face = RIN_GPU_FRONT_FACE_COUNTER_CLOCKWISE;
     pipeline_desc.base.struct_size = sizeof(pipeline_desc);
@@ -320,6 +328,10 @@ int main(void)
               &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
               1u, NULL, 0u,
               &pipeline) == RIN_GPU_OK);
+    pipeline_desc.base.source_color_factor = 99u;
+    CHECK(rindx_d3d11_create_graphics_pipeline(
+              &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
+              1u, NULL, 0u, &invalid_pipeline) != RIN_GPU_OK);
     make_compute_shader(&compute);
     CHECK(rindx_d3d11_create_shader(&device, &compute,
                                     compute.header.total_size,
