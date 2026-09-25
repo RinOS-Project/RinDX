@@ -72,6 +72,10 @@ int rindx_d3d12_create_device(
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out);
 int rindx_d3d12_destroy_device(RinDxD3d12Device* device);
+/* Bounded adapter/feature query sourced from the validated RinGPU adapter
+ * descriptor. Native node enumeration remains a separate boundary. */
+int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
+                                 RinGpuAdapterInfoV1* info);
 /* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
  * HRESULT translation and physical reset are separate boundaries. */
 int rindx_d3d12_get_device_removed_reason(

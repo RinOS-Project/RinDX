@@ -113,6 +113,13 @@ int rindx_d3d12_destroy_device(RinDxD3d12Device* device)
     return RIN_GPU_OK;
 }
 
+int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
+                                 RinGpuAdapterInfoV1* info)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_get_adapter_info(device->runtime, info);
+}
+
 int rindx_d3d12_get_device_removed_reason(
     const RinDxD3d12Device* device)
 {

@@ -146,6 +146,7 @@ int main(void)
 {
     RinGpuRuntimeSoftwareSurfaceDescV1 surface;
     RinDxD3d12Device device;
+    RinGpuAdapterInfoV1 adapter_info;
     RinDxD3d12CommandAllocator allocator;
     RinDxD3d12CommandList list;
     ShaderBlob vertex;
@@ -208,6 +209,13 @@ int main(void)
     make_surface(&surface);
     CHECK(rindx_d3d12_create_device(&surface, &feature_level, 1u, &device) ==
           RIN_GPU_OK);
+    memset(&adapter_info, 0, sizeof(adapter_info));
+    adapter_info.abi_version = RIN_GPU_ABI_VERSION;
+    adapter_info.struct_size = sizeof(adapter_info);
+    CHECK(rindx_d3d12_get_adapter_info(&device, &adapter_info) == RIN_GPU_OK);
+    CHECK(adapter_info.queue_capabilities ==
+          (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
+           RIN_GPU_QUEUE_GRAPHICS));
     CHECK(rindx_d3d12_create_command_allocator(&device, &allocator) ==
           RIN_GPU_OK);
     CHECK(rindx_d3d12_create_command_list(&device, &allocator, &list) ==
