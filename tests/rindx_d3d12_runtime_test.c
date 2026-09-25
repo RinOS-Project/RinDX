@@ -610,6 +610,10 @@ int main(void)
     CHECK(rindx_d3d12_destroy_object(&device, transfer_buffer_destination) ==
           RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, image) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_get_device_removed_reason(&device) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_mark_device_removed(&device) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_get_device_removed_reason(&device) ==
+          RIN_GPU_ERROR_DEVICE_LOST);
     CHECK(rindx_d3d12_destroy_device(&device) == RIN_GPU_OK);
     return 0;
 }

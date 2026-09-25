@@ -99,12 +99,35 @@ int rindx_d3d12_destroy_device(RinDxD3d12Device* device)
     int result;
     if (!device_valid(device) || device->mapped_buffer != 0u)
         return RIN_GPU_ERROR_STATE;
+    if (ringpu_runtime_device_lost(device->runtime)) {
+        ringpu_runtime_destroy(device->runtime);
+        memset(device, 0, sizeof(*device));
+        return RIN_GPU_OK;
+    }
     result = ringpu_runtime_destroy_object(device->runtime, device->fence);
     if (result != RIN_GPU_OK) return result;
     result = ringpu_runtime_destroy_object(device->runtime, device->queue);
     if (result != RIN_GPU_OK) return result;
     ringpu_runtime_destroy(device->runtime);
     memset(device, 0, sizeof(*device));
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d12_get_device_removed_reason(
+    const RinDxD3d12Device* device)
+{
+    if (!device || device->struct_size != sizeof(*device) ||
+        device->version != RIN_DX_D3D12_VERSION || !device->runtime)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_device_lost(device->runtime)
+               ? RIN_GPU_ERROR_DEVICE_LOST
+               : RIN_GPU_OK;
+}
+
+int rindx_d3d12_mark_device_removed(RinDxD3d12Device* device)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    ringpu_runtime_mark_device_lost(device->runtime);
     return RIN_GPU_OK;
 }
 

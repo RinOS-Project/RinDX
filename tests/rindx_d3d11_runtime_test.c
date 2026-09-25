@@ -793,6 +793,10 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, depth_image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_get_device_removed_reason(&device) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_mark_device_removed(&device) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_get_device_removed_reason(&device) ==
+          RIN_GPU_ERROR_DEVICE_LOST);
     CHECK(rindx_d3d11_destroy_device(&device) == RIN_GPU_OK);
     return 0;
 }

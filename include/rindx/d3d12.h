@@ -72,6 +72,11 @@ int rindx_d3d12_create_device(
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out);
 int rindx_d3d12_destroy_device(RinDxD3d12Device* device);
+/* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
+ * HRESULT translation and physical reset are separate boundaries. */
+int rindx_d3d12_get_device_removed_reason(
+    const RinDxD3d12Device* device);
+int rindx_d3d12_mark_device_removed(RinDxD3d12Device* device);
 int rindx_d3d12_create_command_allocator(
     RinDxD3d12Device* device, RinDxD3d12CommandAllocator* allocator_out);
 int rindx_d3d12_reset_command_allocator(RinDxD3d12CommandAllocator* allocator);
