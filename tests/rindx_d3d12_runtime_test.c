@@ -153,6 +153,7 @@ int main(void)
     ShaderBlob compute;
     RinGpuGraphicsPipelineNativeDescV2 pipeline_desc;
     RinGpuImageDescV1 image_desc;
+    RinGpuImageTransitionV1 transition;
     RinGpuDrawIndexedV2 draw;
     RinGpuDrawIndirectV1 indirect_draw;
     RinGpuDrawIndexedIndirectV1 indirect_indexed_draw;
@@ -163,6 +164,12 @@ int main(void)
     RinGpuVertexAttributeV2 vertex_attribute;
     RinGpuVertexBufferLayoutV1 vertex_layout;
     RinGpuImageReadbackV1 readback;
+    RinGpuImageDescV1 transfer_desc;
+    RinGpuImageUploadV1 transfer_upload;
+    RinGpuImageCopyRegionV1 copy_region;
+    RinGpuImageResolveV1 resolve;
+    RinGpuBufferDescV1 transfer_buffer_desc;
+    RinGpuBufferClearV1 buffer_clear;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
@@ -173,7 +180,18 @@ int main(void)
     RinGpuHandle vertex_buffer = 0u;
     RinGpuHandle index_buffer = 0u;
     RinGpuHandle indirect_buffer = 0u;
+    RinGpuHandle transfer_source = 0u;
+    RinGpuHandle transfer_destination = 0u;
+    RinGpuHandle clear_target = 0u;
+    RinGpuHandle transfer_buffer_source = 0u;
+    RinGpuHandle transfer_buffer_destination = 0u;
     uint8_t pixels[16u] = {0};
+    uint8_t copied_pixels[16u] = {0};
+    uint8_t clear_pixels[16u] = {0};
+    static const uint8_t transfer_source_pixels[16u] = {
+        49u, 48u, 47u, 255u, 59u, 58u, 57u, 255u,
+        69u, 68u, 67u, 255u, 79u, 78u, 77u, 255u};
+    static const uint8_t zero_pixels[16u] = {0};
     uint64_t fence_value = 0u;
     const uint32_t feature_level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
 
@@ -243,6 +261,92 @@ int main(void)
                        RIN_GPU_IMAGE_COLOR_TARGET;
     image_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
     CHECK(rindx_d3d12_create_texture2d(&device, &image_desc, &image) ==
+          RIN_GPU_OK);
+    transfer_desc = image_desc;
+    transfer_desc.usage = RIN_GPU_IMAGE_COPY_SOURCE |
+                          RIN_GPU_IMAGE_COPY_DESTINATION;
+    transfer_desc.flags = RIN_GPU_IMAGE_CPU_VISIBLE |
+                          RIN_GPU_IMAGE_CPU_READABLE;
+    CHECK(rindx_d3d12_create_texture2d(&device, &transfer_desc,
+                                       &transfer_source) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_texture2d(&device, &transfer_desc,
+                                       &transfer_destination) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_texture2d(&device, &transfer_desc,
+                                       &clear_target) == RIN_GPU_OK);
+    memset(&transfer_upload, 0, sizeof(transfer_upload));
+    transfer_upload.abi_version = RIN_GPU_ABI_VERSION;
+    transfer_upload.struct_size = sizeof(transfer_upload);
+    transfer_upload.width = 2u;
+    transfer_upload.height = 2u;
+    transfer_upload.depth = 1u;
+    CHECK(rindx_d3d12_upload_image(&device, transfer_source, &transfer_upload,
+                                   transfer_source_pixels,
+                                   sizeof(transfer_source_pixels)) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_upload_image(&device, transfer_destination,
+                                   &transfer_upload, zero_pixels,
+                                   sizeof(zero_pixels)) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_upload_image(&device, clear_target, &transfer_upload,
+                                   zero_pixels, sizeof(zero_pixels)) == RIN_GPU_OK);
+    memset(&transfer_buffer_desc, 0, sizeof(transfer_buffer_desc));
+    transfer_buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
+    transfer_buffer_desc.struct_size = sizeof(transfer_buffer_desc);
+    transfer_buffer_desc.size_bytes = 16u;
+    transfer_buffer_desc.usage = RIN_GPU_BUFFER_COPY_SOURCE |
+                                 RIN_GPU_BUFFER_COPY_DESTINATION;
+    transfer_buffer_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    CHECK(rindx_d3d12_create_buffer(&device, &transfer_buffer_desc,
+                                    &transfer_buffer_source) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_buffer(&device, &transfer_buffer_desc,
+                                    &transfer_buffer_destination) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_upload_buffer(&device, transfer_buffer_source, 0u,
+                                    transfer_source_pixels,
+                                    sizeof(transfer_source_pixels)) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_upload_buffer(&device, transfer_buffer_destination, 0u,
+                                    zero_pixels, sizeof(zero_pixels)) == RIN_GPU_OK);
+    memset(&buffer_clear, 0, sizeof(buffer_clear));
+    buffer_clear.abi_version = RIN_GPU_ABI_VERSION;
+    buffer_clear.struct_size = sizeof(buffer_clear);
+    buffer_clear.size_bytes = 16u;
+    buffer_clear.pattern = UINT32_C(0x01020304);
+    CHECK(rindx_d3d12_copy_buffer(&list, transfer_buffer_destination, 0u,
+                                  transfer_buffer_source, 0u, 16u) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_clear_buffer(&list, transfer_buffer_destination,
+                                   &buffer_clear) == RIN_GPU_OK);
+    memset(&transition, 0, sizeof(transition));
+    transition.abi_version = RIN_GPU_ABI_VERSION;
+    transition.struct_size = sizeof(transition);
+    transition.mip_level_count = 1u;
+    transition.array_layer_count = 1u;
+    transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+    transition.after_state = RIN_GPU_IMAGE_STATE_COPY_SOURCE;
+    CHECK(rindx_d3d12_transition_image(&list, transfer_source,
+                                       transition.before_state,
+                                       transition.after_state) == RIN_GPU_OK);
+    memset(&copy_region, 0, sizeof(copy_region));
+    copy_region.abi_version = RIN_GPU_ABI_VERSION;
+    copy_region.struct_size = sizeof(copy_region);
+    copy_region.width = 2u;
+    copy_region.height = 2u;
+    copy_region.depth = 1u;
+    CHECK(rindx_d3d12_copy_texture2d(&list, transfer_destination,
+                                     transfer_source, &copy_region) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_clear_render_target(
+              &list, clear_target, 0.0f, 0.0f, 1.0f, 1.0f) == RIN_GPU_OK);
+    transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+    transition.after_state = RIN_GPU_IMAGE_STATE_COPY_SOURCE;
+    CHECK(rindx_d3d12_transition_image(&list, transfer_destination,
+                                       transition.before_state,
+                                       transition.after_state) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_transition_image(&list, clear_target,
+                                       transition.before_state,
+                                       transition.after_state) == RIN_GPU_OK);
+    memset(&resolve, 0, sizeof(resolve));
+    resolve.abi_version = RIN_GPU_ABI_VERSION;
+    resolve.struct_size = sizeof(resolve);
+    resolve.width = 1u;
+    resolve.height = 1u;
+    CHECK(rindx_d3d12_resolve_texture2d(&list, transfer_destination,
+                                        transfer_source, &resolve) !=
           RIN_GPU_OK);
     memset(&vertex_desc, 0, sizeof(vertex_desc));
     vertex_desc.abi_version = RIN_GPU_ABI_VERSION;
@@ -378,6 +482,18 @@ int main(void)
                                      sizeof(pixels)) == RIN_GPU_OK);
     CHECK(pixels[0] != 0u || pixels[1] != 0u || pixels[2] != 0u ||
           pixels[3] != 0u);
+    CHECK(rindx_d3d12_readback_image(&device, transfer_destination, &readback,
+                                     copied_pixels, sizeof(copied_pixels)) ==
+          RIN_GPU_OK);
+    CHECK(memcmp(copied_pixels, transfer_source_pixels,
+                 sizeof(copied_pixels)) == 0);
+    CHECK(rindx_d3d12_readback_image(&device, clear_target, &readback,
+                                     clear_pixels, sizeof(clear_pixels)) ==
+          RIN_GPU_OK);
+    for (uint32_t pixel = 0u; pixel < sizeof(clear_pixels); pixel += 4u)
+        CHECK(clear_pixels[pixel] == 0u && clear_pixels[pixel + 1u] == 0u &&
+              clear_pixels[pixel + 2u] == 255u && clear_pixels[pixel + 3u] ==
+                  255u);
     CHECK(rindx_d3d12_destroy_command_list(&list) == RIN_GPU_OK);
     CHECK(rindx_d3d12_reset_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);
@@ -390,6 +506,14 @@ int main(void)
     CHECK(rindx_d3d12_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, index_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, indirect_buffer) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, transfer_source) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, transfer_destination) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, clear_target) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, transfer_buffer_source) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, transfer_buffer_destination) ==
+          RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, image) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_device(&device) == RIN_GPU_OK);
     return 0;

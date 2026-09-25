@@ -91,6 +91,30 @@ int rindx_d3d12_destroy_object(RinDxD3d12Device* device, RinGpuHandle object);
 int rindx_d3d12_upload_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
                              uint64_t offset, const void* source,
                              uint64_t size_bytes);
+int rindx_d3d12_upload_image(RinDxD3d12Device* device, RinGpuHandle image,
+                             const RinGpuImageUploadV1* upload,
+                             const void* source, uint64_t source_size);
+/* Bounded software copy/resolve/clear owner. Explicit RinGPU regions are the
+ * validated ABI; arbitrary native D3D12 command-list bytecode is rejected. */
+int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,
+                            RinGpuHandle destination, uint64_t destination_offset,
+                            RinGpuHandle source, uint64_t source_offset,
+                            uint64_t size_bytes);
+int rindx_d3d12_clear_buffer(RinDxD3d12CommandList* list,
+                             RinGpuHandle destination,
+                             const RinGpuBufferClearV1* clear);
+int rindx_d3d12_copy_texture2d(
+    RinDxD3d12CommandList* list, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageCopyRegionV1* region);
+int rindx_d3d12_resolve_texture2d(
+    RinDxD3d12CommandList* list, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageResolveV1* resolve);
+int rindx_d3d12_clear_render_target(
+    RinDxD3d12CommandList* list, RinGpuHandle target,
+    float red, float green, float blue, float alpha);
+int rindx_d3d12_clear_depth_stencil(
+    RinDxD3d12CommandList* list, RinGpuHandle target, uint32_t clear_flags,
+    float depth, uint32_t stencil);
 
 int rindx_d3d12_transition_image(
     RinDxD3d12CommandList* list, RinGpuHandle image,

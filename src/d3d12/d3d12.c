@@ -296,6 +296,100 @@ int rindx_d3d12_upload_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
                                         source, size_bytes);
 }
 
+int rindx_d3d12_upload_image(RinDxD3d12Device* device, RinGpuHandle image,
+                             const RinGpuImageUploadV1* upload,
+                             const void* source, uint64_t source_size)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_upload_image(device->runtime, image, upload, source,
+                                       source_size);
+}
+
+int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,
+                            RinGpuHandle destination, uint64_t destination_offset,
+                            RinGpuHandle source, uint64_t source_offset,
+                            uint64_t size_bytes)
+{
+    if (!list_valid(list) || destination == 0u || source == 0u ||
+        size_bytes == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_copy_buffer(
+        list->device->runtime, list->command_list, destination,
+        destination_offset, source, source_offset, size_bytes);
+}
+
+int rindx_d3d12_clear_buffer(RinDxD3d12CommandList* list,
+                             RinGpuHandle destination,
+                             const RinGpuBufferClearV1* clear)
+{
+    if (!list_valid(list) || destination == 0u || !clear)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_clear_buffer(
+        list->device->runtime, list->command_list, destination, clear);
+}
+
+int rindx_d3d12_copy_texture2d(
+    RinDxD3d12CommandList* list, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageCopyRegionV1* region)
+{
+    if (!list_valid(list) || destination == 0u || source == 0u || !region)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_copy_image(
+        list->device->runtime, list->command_list, destination, source,
+        region);
+}
+
+int rindx_d3d12_resolve_texture2d(
+    RinDxD3d12CommandList* list, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageResolveV1* resolve)
+{
+    if (!list_valid(list) || destination == 0u || source == 0u || !resolve)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_resolve_image(
+        list->device->runtime, list->command_list, destination, source,
+        resolve);
+}
+
+int rindx_d3d12_clear_render_target(
+    RinDxD3d12CommandList* list, RinGpuHandle target,
+    float red, float green, float blue, float alpha)
+{
+    RinGpuImageClearV1 clear;
+    if (!list_valid(list) || target == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&clear, 0, sizeof(clear));
+    clear.abi_version = RIN_GPU_ABI_VERSION;
+    clear.struct_size = sizeof(clear);
+    clear.aspects = RIN_GPU_IMAGE_CLEAR_COLOR;
+    clear.color_red = red;
+    clear.color_green = green;
+    clear.color_blue = blue;
+    clear.color_alpha = alpha;
+    return ringpu_runtime_command_clear_image(
+        list->device->runtime, list->command_list, target, &clear);
+}
+
+int rindx_d3d12_clear_depth_stencil(
+    RinDxD3d12CommandList* list, RinGpuHandle target, uint32_t clear_flags,
+    float depth, uint32_t stencil)
+{
+    RinGpuImageClearV1 clear;
+    if (!list_valid(list) || target == 0u || clear_flags == 0u ||
+        (clear_flags & ~RIN_GPU_IMAGE_CLEAR_KNOWN_ASPECTS) != 0u ||
+        (clear_flags & (RIN_GPU_IMAGE_CLEAR_DEPTH |
+                        RIN_GPU_IMAGE_CLEAR_STENCIL)) == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&clear, 0, sizeof(clear));
+    clear.abi_version = RIN_GPU_ABI_VERSION;
+    clear.struct_size = sizeof(clear);
+    clear.aspects = clear_flags & (RIN_GPU_IMAGE_CLEAR_DEPTH |
+                                   RIN_GPU_IMAGE_CLEAR_STENCIL);
+    clear.depth = depth;
+    clear.stencil = stencil;
+    return ringpu_runtime_command_clear_image(
+        list->device->runtime, list->command_list, target, &clear);
+}
+
 int rindx_d3d12_transition_image(
     RinDxD3d12CommandList* list, RinGpuHandle image,
     uint32_t before_state, uint32_t after_state)

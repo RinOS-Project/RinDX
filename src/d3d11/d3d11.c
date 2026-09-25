@@ -227,6 +227,133 @@ int rindx_d3d11_upload_image(RinDxD3d11Device* device, RinGpuHandle image,
                                        source_size);
 }
 
+static int d3d11_full_copy_region(const RinGpuImageInfoV1* destination,
+                                  const RinGpuImageInfoV1* source,
+                                  RinGpuImageCopyRegionV1* region)
+{
+    const RinGpuImageDescV1* dst;
+    const RinGpuImageDescV1* src;
+    if (!destination || !source || !region) return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    dst = &destination->descriptor;
+    src = &source->descriptor;
+    if (dst->dimension != RIN_GPU_IMAGE_DIMENSION_2D ||
+        src->dimension != RIN_GPU_IMAGE_DIMENSION_2D ||
+        dst->format != src->format || dst->width != src->width ||
+        dst->height != src->height || dst->depth != src->depth ||
+        dst->array_layers != 1u || src->array_layers != 1u ||
+        dst->mip_levels != 1u || src->mip_levels != 1u ||
+        dst->sample_count != 1u || src->sample_count != 1u) {
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    }
+    memset(region, 0, sizeof(*region));
+    region->abi_version = RIN_GPU_ABI_VERSION;
+    region->struct_size = sizeof(*region);
+    region->width = dst->width;
+    region->height = dst->height;
+    region->depth = dst->depth;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,
+                            RinGpuHandle destination, uint64_t destination_offset,
+                            RinGpuHandle source, uint64_t source_offset,
+                            uint64_t size_bytes)
+{
+    if (!context_valid(context) || destination == 0u || source == 0u ||
+        size_bytes == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_copy_buffer(
+        context->device->runtime, context->command_list, destination,
+        destination_offset, source, source_offset, size_bytes);
+}
+
+int rindx_d3d11_copy_resource(RinDxD3d11Context* context,
+                              RinGpuHandle destination, RinGpuHandle source)
+{
+    RinGpuImageInfoV1 destination_info;
+    RinGpuImageInfoV1 source_info;
+    RinGpuImageCopyRegionV1 region;
+    int result;
+    if (!context_valid(context) || destination == 0u || source == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&destination_info, 0, sizeof(destination_info));
+    memset(&source_info, 0, sizeof(source_info));
+    result = ringpu_runtime_get_image_info(context->device->runtime,
+                                           destination, &destination_info);
+    if (result != RIN_GPU_OK) return result;
+    result = ringpu_runtime_get_image_info(context->device->runtime, source,
+                                           &source_info);
+    if (result != RIN_GPU_OK) return result;
+    result = d3d11_full_copy_region(&destination_info, &source_info, &region);
+    if (result != RIN_GPU_OK) return result;
+    return ringpu_runtime_command_copy_image(
+        context->device->runtime, context->command_list, destination, source,
+        &region);
+}
+
+int rindx_d3d11_copy_subresource_region(
+    RinDxD3d11Context* context, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageCopyRegionV1* region)
+{
+    if (!context_valid(context) || destination == 0u || source == 0u || !region)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_copy_image(
+        context->device->runtime, context->command_list, destination, source,
+        region);
+}
+
+int rindx_d3d11_resolve_subresource(
+    RinDxD3d11Context* context, RinGpuHandle destination, RinGpuHandle source,
+    const RinGpuImageResolveV1* resolve)
+{
+    if (!context_valid(context) || destination == 0u || source == 0u ||
+        !resolve)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_resolve_image(
+        context->device->runtime, context->command_list, destination, source,
+        resolve);
+}
+
+int rindx_d3d11_clear_render_target_view(
+    RinDxD3d11Context* context, RinGpuHandle target,
+    float red, float green, float blue, float alpha)
+{
+    RinGpuImageClearV1 clear;
+    if (!context_valid(context) || target == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&clear, 0, sizeof(clear));
+    clear.abi_version = RIN_GPU_ABI_VERSION;
+    clear.struct_size = sizeof(clear);
+    clear.aspects = RIN_GPU_IMAGE_CLEAR_COLOR;
+    clear.color_red = red;
+    clear.color_green = green;
+    clear.color_blue = blue;
+    clear.color_alpha = alpha;
+    return ringpu_runtime_command_clear_image(
+        context->device->runtime, context->command_list, target, &clear);
+}
+
+int rindx_d3d11_clear_depth_stencil_view(
+    RinDxD3d11Context* context, RinGpuHandle target, uint32_t clear_flags,
+    float depth, uint32_t stencil)
+{
+    RinGpuImageClearV1 clear;
+    if (!context_valid(context) || target == 0u || clear_flags == 0u ||
+        (clear_flags & ~RIN_GPU_IMAGE_CLEAR_KNOWN_ASPECTS) != 0u ||
+        (clear_flags & (RIN_GPU_IMAGE_CLEAR_DEPTH |
+                        RIN_GPU_IMAGE_CLEAR_STENCIL)) == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&clear, 0, sizeof(clear));
+    clear.abi_version = RIN_GPU_ABI_VERSION;
+    clear.struct_size = sizeof(clear);
+    clear.aspects = clear_flags & (RIN_GPU_IMAGE_CLEAR_DEPTH |
+                                   RIN_GPU_IMAGE_CLEAR_STENCIL);
+    clear.depth = depth;
+    clear.stencil = stencil;
+    return ringpu_runtime_command_clear_image(
+        context->device->runtime, context->command_list, target, &clear);
+}
+
 int rindx_d3d11_transition_image(
     RinDxD3d11Context* context, RinGpuHandle image,
     uint32_t before_state, uint32_t after_state)
