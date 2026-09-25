@@ -273,16 +273,19 @@ int main(void)
     memset(&indirect_desc, 0, sizeof(indirect_desc));
     indirect_desc.abi_version = RIN_GPU_ABI_VERSION;
     indirect_desc.struct_size = sizeof(indirect_desc);
-    indirect_desc.size_bytes = 20u;
+    indirect_desc.size_bytes = 32u;
     indirect_desc.usage = RIN_GPU_BUFFER_INDIRECT | RIN_GPU_BUFFER_COPY_DESTINATION;
     indirect_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
     CHECK(rindx_d3d12_create_buffer(&device, &indirect_desc, &indirect_buffer) ==
           RIN_GPU_OK);
     {
-        const uint32_t indexed_packet[5] = {1u, 1u, 0u, 0u, 0u};
+        const uint32_t indirect_packets[8] = {
+            1u, 1u, 0u, 0u, 0u,
+            1u, 1u, 1u
+        };
         CHECK(rindx_d3d12_upload_buffer(&device, indirect_buffer, 0u,
-                                        indexed_packet,
-                                        sizeof(indexed_packet)) == RIN_GPU_OK);
+                                        indirect_packets,
+                                        sizeof(indirect_packets)) == RIN_GPU_OK);
     }
     CHECK(rindx_d3d12_transition_image(&list, image,
                                        RIN_GPU_IMAGE_STATE_UNDEFINED,
@@ -353,6 +356,7 @@ int main(void)
     indirect_dispatch.pipeline = compute_pipeline;
     indirect_dispatch.bind_group = compute_bind_group;
     indirect_dispatch.indirect_buffer = indirect_buffer;
+    indirect_dispatch.indirect_offset = 20u;
     CHECK(rindx_d3d12_execute_indirect_dispatch(&list, &indirect_dispatch) ==
           RIN_GPU_OK);
     CHECK(rindx_d3d12_transition_image(&list, image,
