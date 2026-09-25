@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #include <rindx/d3d11.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 #define RIN_DX_D3D11_STATE_READY 1u
@@ -122,7 +123,8 @@ int rindx_d3d11_create_context(RinDxD3d11Device* device,
 int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
 {
     int result;
-    if (!context_valid(context) || context->render_pass_active != 0u)
+    if (!context_valid(context) || context->render_pass_active != 0u ||
+        context->mapped_buffer != 0u)
         return RIN_GPU_ERROR_STATE;
     result = ringpu_runtime_destroy_object(context->device->runtime,
                                            context->command_list);
@@ -251,6 +253,115 @@ int rindx_d3d11_readback_buffer(
     return ringpu_runtime_readback_buffer(device->runtime, buffer,
                                           source_offset, destination,
                                           size_bytes);
+}
+
+static int d3d11_map_type_valid(uint32_t map_type)
+{
+    return map_type == RIN_DX_D3D11_MAP_READ ||
+        map_type == RIN_DX_D3D11_MAP_WRITE ||
+        map_type == RIN_DX_D3D11_MAP_READ_WRITE ||
+        map_type == RIN_DX_D3D11_MAP_WRITE_DISCARD ||
+        map_type == RIN_DX_D3D11_MAP_WRITE_NO_OVERWRITE;
+}
+
+static int d3d11_map_type_reads(uint32_t map_type)
+{
+    return map_type == RIN_DX_D3D11_MAP_READ ||
+        map_type == RIN_DX_D3D11_MAP_READ_WRITE;
+}
+
+static int d3d11_map_type_writes(uint32_t map_type)
+{
+    return map_type != RIN_DX_D3D11_MAP_READ;
+}
+
+int rindx_d3d11_map_buffer(RinDxD3d11Context* context, RinGpuHandle buffer,
+                           uint32_t map_type, uint32_t flags,
+                           RinDxD3d11MappedResource* mapped_out)
+{
+    RinGpuBufferInfoV1 info;
+    void* data;
+    int result;
+
+    if (!context_valid(context) || buffer == 0u ||
+        !d3d11_map_type_valid(map_type) || flags != 0u || !mapped_out ||
+        mapped_out->struct_size != sizeof(*mapped_out) ||
+        mapped_out->version != RIN_DX_D3D11_VERSION ||
+        context->mapped_buffer != 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (context->pending_command_list != 0u) {
+        result = ringpu_runtime_command_list_reset(
+            context->device->runtime, context->pending_command_list);
+        if (result != RIN_GPU_OK) return result;
+        context->pending_command_list = 0u;
+    }
+    memset(&info, 0, sizeof(info));
+    result = ringpu_runtime_get_buffer_info(context->device->runtime, buffer,
+                                             &info);
+    if (result != RIN_GPU_OK) return result;
+    if ((info.flags & RIN_GPU_BUFFER_CPU_VISIBLE) == 0u)
+        return RIN_GPU_ERROR_STATE;
+    if (d3d11_map_type_reads(map_type) &&
+        (info.usage & RIN_GPU_BUFFER_COPY_SOURCE) == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (d3d11_map_type_writes(map_type) &&
+        (info.usage & RIN_GPU_BUFFER_COPY_DESTINATION) == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (info.size_bytes > (uint64_t)SIZE_MAX)
+        return RIN_GPU_ERROR_LIMIT;
+    data = calloc(1u, (size_t)info.size_bytes);
+    if (!data) return RIN_GPU_ERROR_NO_MEMORY;
+    if (d3d11_map_type_reads(map_type)) {
+        result = ringpu_runtime_readback_buffer(
+            context->device->runtime, buffer, 0u, data, info.size_bytes);
+        if (result != RIN_GPU_OK) {
+            free(data);
+            return result;
+        }
+    }
+    context->mapped_buffer = buffer;
+    context->mapped_data = data;
+    context->mapped_size = info.size_bytes;
+    context->mapped_type = map_type;
+    context->mapped_flags = flags;
+    mapped_out->buffer = buffer;
+    mapped_out->data = data;
+    mapped_out->size_bytes = info.size_bytes;
+    mapped_out->row_pitch_bytes = info.size_bytes;
+    mapped_out->depth_pitch_bytes = info.size_bytes;
+    mapped_out->map_type = map_type;
+    mapped_out->flags = flags;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_unmap_buffer(RinDxD3d11Context* context, RinGpuHandle buffer,
+                             RinDxD3d11MappedResource* mapped)
+{
+    int result = RIN_GPU_OK;
+
+    if (!context_valid(context) || buffer == 0u || !mapped ||
+        mapped->struct_size != sizeof(*mapped) ||
+        mapped->version != RIN_DX_D3D11_VERSION ||
+        context->mapped_buffer != buffer ||
+        mapped->buffer != buffer || mapped->data != context->mapped_data ||
+        mapped->size_bytes != context->mapped_size ||
+        mapped->map_type != context->mapped_type ||
+        mapped->flags != context->mapped_flags)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (d3d11_map_type_writes(context->mapped_type)) {
+        result = ringpu_runtime_upload_buffer(
+            context->device->runtime, buffer, 0u, context->mapped_data,
+            context->mapped_size);
+        if (result != RIN_GPU_OK) return result;
+    }
+    free(context->mapped_data);
+    context->mapped_buffer = 0u;
+    context->mapped_data = NULL;
+    context->mapped_size = 0u;
+    context->mapped_type = 0u;
+    context->mapped_flags = 0u;
+    memset(mapped, 0, sizeof(*mapped));
+    return RIN_GPU_OK;
 }
 
 static int d3d11_full_copy_region(const RinGpuImageInfoV1* destination,

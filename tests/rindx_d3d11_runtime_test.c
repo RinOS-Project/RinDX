@@ -189,6 +189,7 @@ int main(void)
     RinGpuBufferClearV1 buffer_clear;
     RinGpuImageDescV1 depth_desc;
     RinGpuImageReadbackV1 depth_readback;
+    RinDxD3d11MappedResource mapped;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
@@ -197,6 +198,7 @@ int main(void)
     RinGpuHandle compute_bind_group = 0u;
     RinGpuHandle image = 0u;
     RinGpuHandle vertex_buffer = 0u;
+    RinGpuHandle non_cpu_buffer = 0u;
     RinGpuHandle index_buffer = 0u;
     RinGpuHandle transfer_source = 0u;
     RinGpuHandle transfer_destination = 0u;
@@ -467,6 +469,9 @@ int main(void)
         CHECK(rindx_d3d11_upload_buffer(&device, vertex_buffer, 0u, &position,
                                         sizeof(position)) == RIN_GPU_OK);
     }
+    vertex_desc.flags = 0u;
+    CHECK(rindx_d3d11_create_buffer(&device, &vertex_desc, &non_cpu_buffer) ==
+          RIN_GPU_OK);
     memset(&index_desc, 0, sizeof(index_desc));
     index_desc.abi_version = RIN_GPU_ABI_VERSION;
     index_desc.struct_size = sizeof(index_desc);
@@ -578,6 +583,28 @@ int main(void)
               buffer_readback[offset + 1u] == 0x03u &&
               buffer_readback[offset + 2u] == 0x02u &&
               buffer_readback[offset + 3u] == 0x01u);
+    memset(&mapped, 0, sizeof(mapped));
+    mapped.struct_size = sizeof(mapped);
+    mapped.version = RIN_DX_D3D11_VERSION;
+    CHECK(rindx_d3d11_map_buffer(&context, transfer_buffer_destination,
+                                 RIN_DX_D3D11_MAP_READ_WRITE, 0u,
+                                 &mapped) == RIN_GPU_OK);
+    CHECK(mapped.data != NULL && mapped.size_bytes == sizeof(buffer_readback) &&
+          mapped.row_pitch_bytes == sizeof(buffer_readback));
+    ((uint8_t*)mapped.data)[0u] = 0xa5u;
+    ((uint8_t*)mapped.data)[1u] = 0x5au;
+    CHECK(rindx_d3d11_unmap_buffer(&context, transfer_buffer_destination,
+                                   &mapped) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_readback_buffer(&device, transfer_buffer_destination,
+                                      0u, buffer_readback,
+                                      sizeof(buffer_readback)) == RIN_GPU_OK);
+    CHECK(buffer_readback[0u] == 0xa5u && buffer_readback[1u] == 0x5au);
+    memset(&mapped, 0, sizeof(mapped));
+    mapped.struct_size = sizeof(mapped);
+    mapped.version = RIN_DX_D3D11_VERSION;
+    CHECK(rindx_d3d11_map_buffer(&context, non_cpu_buffer,
+                                 RIN_DX_D3D11_MAP_READ, 0u,
+                                 &mapped) == RIN_GPU_ERROR_STATE);
     memset(&mip_readback, 0, sizeof(mip_readback));
     mip_readback.abi_version = RIN_GPU_ABI_VERSION;
     mip_readback.struct_size = sizeof(mip_readback);
@@ -599,6 +626,7 @@ int main(void)
     CHECK(rindx_d3d11_destroy_object(&device, fragment_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, vertex_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, non_cpu_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, index_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, transfer_source) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, transfer_destination) ==

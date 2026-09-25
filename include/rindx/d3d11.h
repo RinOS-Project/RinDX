@@ -8,6 +8,15 @@
 
 #define RIN_DX_D3D11_VERSION 1u
 #define RIN_DX_D3D11_FEATURE_LEVEL_11_0 UINT32_C(0xb000)
+#define RIN_DX_D3D11_MAP_READ 1u
+#define RIN_DX_D3D11_MAP_WRITE 2u
+#define RIN_DX_D3D11_MAP_READ_WRITE 3u
+#define RIN_DX_D3D11_MAP_WRITE_DISCARD 4u
+#define RIN_DX_D3D11_MAP_WRITE_NO_OVERWRITE 5u
+#define RIN_DX_D3D11_MAP_KNOWN \
+    (RIN_DX_D3D11_MAP_READ | RIN_DX_D3D11_MAP_WRITE | \
+     RIN_DX_D3D11_MAP_READ_WRITE | RIN_DX_D3D11_MAP_WRITE_DISCARD | \
+     RIN_DX_D3D11_MAP_WRITE_NO_OVERWRITE)
 
 typedef struct RinDxD3d11Device {
     uint32_t struct_size;
@@ -30,7 +39,24 @@ typedef struct RinDxD3d11Context {
     RinGpuHandle pending_command_list;
     uint32_t render_pass_active;
     uint32_t state;
+    RinGpuHandle mapped_buffer;
+    void* mapped_data;
+    uint64_t mapped_size;
+    uint32_t mapped_type;
+    uint32_t mapped_flags;
 } RinDxD3d11Context;
+
+typedef struct RinDxD3d11MappedResource {
+    uint32_t struct_size;
+    uint32_t version;
+    RinGpuHandle buffer;
+    void* data;
+    uint64_t size_bytes;
+    uint64_t row_pitch_bytes;
+    uint64_t depth_pitch_bytes;
+    uint32_t map_type;
+    uint32_t flags;
+} RinDxD3d11MappedResource;
 
 /* This is the RinOS D3D11 software execution contract. It deliberately uses
  * RinGPU's versioned resources and RSH1 modules rather than accepting an
@@ -84,6 +110,11 @@ int rindx_d3d11_update_subresource_texture2d(
 int rindx_d3d11_readback_buffer(
     RinDxD3d11Device* device, RinGpuHandle buffer, uint64_t source_offset,
     void* destination, uint64_t size_bytes);
+int rindx_d3d11_map_buffer(RinDxD3d11Context* context, RinGpuHandle buffer,
+                           uint32_t map_type, uint32_t flags,
+                           RinDxD3d11MappedResource* mapped_out);
+int rindx_d3d11_unmap_buffer(RinDxD3d11Context* context, RinGpuHandle buffer,
+                             RinDxD3d11MappedResource* mapped);
 /* Bounded software resource-transfer owner. Native D3D11 COM/view
  * translation remains outside this ABI and is rejected until validated. */
 int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,
@@ -143,13 +174,17 @@ int rindx_d3d11_readback_image(
 #if defined(__cplusplus)
 static_assert(sizeof(RinDxD3d11Device) == 48u,
               "RinDX D3D11 device ABI drift");
-static_assert(sizeof(RinDxD3d11Context) == 56u,
+static_assert(sizeof(RinDxD3d11Context) == 88u,
               "RinDX D3D11 context ABI drift");
+static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
+              "RinDX D3D11 mapped-resource ABI drift");
 #else
 _Static_assert(sizeof(RinDxD3d11Device) == 48u,
                "RinDX D3D11 device ABI drift");
-_Static_assert(sizeof(RinDxD3d11Context) == 56u,
+_Static_assert(sizeof(RinDxD3d11Context) == 88u,
                "RinDX D3D11 context ABI drift");
+_Static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
+               "RinDX D3D11 mapped-resource ABI drift");
 #endif
 
 #endif /* RINDX_PUBLIC_D3D11_H */
