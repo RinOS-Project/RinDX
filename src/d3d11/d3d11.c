@@ -138,6 +138,63 @@ int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
     return RIN_GPU_OK;
 }
 
+static int d3d11_query_type_valid(uint32_t query_type)
+{
+    return query_type == RIN_DX_D3D11_QUERY_TIMESTAMP ||
+           query_type == RIN_DX_D3D11_QUERY_OCCLUSION ||
+           query_type == RIN_DX_D3D11_QUERY_PIPELINE_STATISTICS;
+}
+
+int rindx_d3d11_create_query(RinDxD3d11Device* device, uint32_t query_type,
+                             RinGpuHandle* query_out)
+{
+    RinGpuQueryDescV1 descriptor;
+    if (!device_valid(device) || !d3d11_query_type_valid(query_type) ||
+        !query_out)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&descriptor, 0, sizeof(descriptor));
+    descriptor.abi_version = RIN_GPU_ABI_VERSION;
+    descriptor.struct_size = sizeof(descriptor);
+    descriptor.query_type = query_type;
+    return ringpu_runtime_create_query(device->runtime, &descriptor,
+                                       query_out);
+}
+
+int rindx_d3d11_begin_query(RinDxD3d11Context* context, RinGpuHandle query)
+{
+    if (!context_valid(context) || query == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_begin_query(context->device->runtime,
+                                              context->command_list, query);
+}
+
+int rindx_d3d11_end_query(RinDxD3d11Context* context, RinGpuHandle query)
+{
+    if (!context_valid(context) || query == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_end_query(context->device->runtime,
+                                            context->command_list, query);
+}
+
+int rindx_d3d11_reset_query(RinDxD3d11Context* context, RinGpuHandle query)
+{
+    if (!context_valid(context) || query == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_reset_query(context->device->runtime,
+                                              context->command_list, query);
+}
+
+int rindx_d3d11_get_query_data(RinDxD3d11Device* device,
+                               RinGpuHandle query, uint32_t flags,
+                               RinGpuQueryResultV1* result)
+{
+    if (!device_valid(device) || query == 0u ||
+        (flags & ~RIN_DX_D3D11_QUERY_RESULT_WAIT) != 0u || !result)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_get_query_result(device->runtime, query, flags,
+                                           result);
+}
+
 int rindx_d3d11_create_buffer(RinDxD3d11Device* device,
                               const RinGpuBufferDescV1* descriptor,
                               RinGpuHandle* buffer_out)

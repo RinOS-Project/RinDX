@@ -230,6 +230,7 @@ int main(void)
     RinGpuImageReadbackV1 depth_readback;
     RinGpuSamplerDescV1 sampler_desc;
     RinGpuRasterStateV1 raster_state;
+    RinGpuQueryResultV1 query_result;
     RinDxD3d11MappedResource mapped;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
@@ -243,6 +244,8 @@ int main(void)
     RinGpuHandle graphics_bind_group = 0u;
     RinGpuHandle sampler = 0u;
     RinGpuHandle invalid_sampler = 0u;
+    RinGpuHandle occlusion_query = 0u;
+    RinGpuHandle invalid_query = 0u;
     RinGpuHandle image = 0u;
     RinGpuHandle storage_image = 0u;
     RinGpuHandle vertex_buffer = 0u;
@@ -291,6 +294,10 @@ int main(void)
                 (unsigned long long)surface.reserved[1]);
     CHECK(create_result == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_context(&device, &context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_OCCLUSION,
+                                   &occlusion_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_query(&device, 99u, &invalid_query) !=
+          RIN_GPU_OK);
     make_vertex(&vertex);
     make_storage_fragment(&fragment);
     CHECK(rindx_d3d11_create_shader(&device, &vertex, vertex.header.total_size,
@@ -602,6 +609,7 @@ int main(void)
     CHECK(rindx_d3d11_transition_image(
               &context, storage_image, RIN_GPU_IMAGE_STATE_UNDEFINED,
               RIN_GPU_IMAGE_STATE_SHADER_READ) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_query(&context, occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_begin_render_pass(&context, image, 0u, 1u,
                                         0.0f, 0.0f, 0.0f, 1.0f,
                                         1.0f) == RIN_GPU_OK);
@@ -636,6 +644,7 @@ int main(void)
     draw.vertex_buffers[0].buffer = vertex_buffer;
     CHECK(rindx_d3d11_draw_indexed_instanced(&context, &draw) == RIN_GPU_OK);
     CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_query(&context, occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(
               &context, storage_image, RIN_GPU_IMAGE_STATE_SHADER_READ,
               RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
@@ -658,6 +667,13 @@ int main(void)
     CHECK(rindx_d3d11_close_and_submit(&context, &fence_value) == RIN_GPU_OK);
     CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
           RIN_GPU_OK);
+    memset(&query_result, 0, sizeof(query_result));
+    query_result.struct_size = sizeof(query_result);
+    query_result.abi_version = RIN_GPU_ABI_VERSION;
+    CHECK(rindx_d3d11_get_query_data(&device, occlusion_query, 0u,
+                                     &query_result) == RIN_GPU_OK);
+    CHECK(query_result.query_type == RIN_DX_D3D11_QUERY_OCCLUSION &&
+          query_result.available != 0u && query_result.values[0] != 0u);
     memset(&readback, 0, sizeof(readback));
     readback.abi_version = RIN_GPU_ABI_VERSION;
     readback.struct_size = sizeof(readback);
@@ -750,6 +766,7 @@ int main(void)
           mip_readback_pixels[1u] == 50u && mip_readback_pixels[2u] == 25u &&
           mip_readback_pixels[3u] == 255u);
     CHECK(rindx_d3d11_destroy_context(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, graphics_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, pipeline) == RIN_GPU_OK);

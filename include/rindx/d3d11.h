@@ -18,6 +18,14 @@
      RIN_DX_D3D11_MAP_READ_WRITE | RIN_DX_D3D11_MAP_WRITE_DISCARD | \
      RIN_DX_D3D11_MAP_WRITE_NO_OVERWRITE)
 
+#define RIN_DX_D3D11_QUERY_TIMESTAMP RIN_GPU_QUERY_TIMESTAMP
+#define RIN_DX_D3D11_QUERY_OCCLUSION RIN_GPU_QUERY_OCCLUSION
+#define RIN_DX_D3D11_QUERY_PIPELINE_STATISTICS RIN_GPU_QUERY_PIPELINE_STATISTICS
+#define RIN_DX_D3D11_QUERY_KNOWN \
+    (RIN_DX_D3D11_QUERY_TIMESTAMP | RIN_DX_D3D11_QUERY_OCCLUSION | \
+     RIN_DX_D3D11_QUERY_PIPELINE_STATISTICS)
+#define RIN_DX_D3D11_QUERY_RESULT_WAIT RIN_GPU_QUERY_RESULT_WAIT
+
 typedef struct RinDxD3d11Device {
     uint32_t struct_size;
     uint32_t version;
@@ -70,6 +78,17 @@ int rindx_d3d11_destroy_device(RinDxD3d11Device* device);
 int rindx_d3d11_create_context(RinDxD3d11Device* device,
                                RinDxD3d11Context* context_out);
 int rindx_d3d11_destroy_context(RinDxD3d11Context* context);
+/* Bounded software query owner. The result ABI is RinGPU's versioned query
+ * result; native D3D11 predicate/GetData translation remains fail-closed
+ * until a validated COM owner exists. */
+int rindx_d3d11_create_query(RinDxD3d11Device* device, uint32_t query_type,
+                             RinGpuHandle* query_out);
+int rindx_d3d11_begin_query(RinDxD3d11Context* context, RinGpuHandle query);
+int rindx_d3d11_end_query(RinDxD3d11Context* context, RinGpuHandle query);
+int rindx_d3d11_reset_query(RinDxD3d11Context* context, RinGpuHandle query);
+int rindx_d3d11_get_query_data(RinDxD3d11Device* device,
+                               RinGpuHandle query, uint32_t flags,
+                               RinGpuQueryResultV1* result);
 
 int rindx_d3d11_create_buffer(RinDxD3d11Device* device,
                               const RinGpuBufferDescV1* descriptor,
