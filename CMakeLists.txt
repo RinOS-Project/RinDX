@@ -14,7 +14,8 @@ add_subdirectory("${RINGPU_DIR}" "ringpu-build" EXCLUDE_FROM_ALL)
 set(RINDX_SOURCES
     src/dxgi/catalog.c
     src/dxgi/com.c
-    src/dxgi/swapchain.c)
+    src/dxgi/swapchain.c
+    src/d3d11/d3d11.c)
 add_library(RinDX STATIC ${RINDX_SOURCES})
 add_library(RinDX::RinDX ALIAS RinDX)
 target_compile_features(RinDX PUBLIC c_std_11)
@@ -24,4 +25,12 @@ if(MSVC)
     target_compile_options(RinDX PRIVATE /W4)
 else()
     target_compile_options(RinDX PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(rindx-d3d11-runtime-test
+        tests/rindx_d3d11_runtime_test.c)
+    target_link_libraries(rindx-d3d11-runtime-test PRIVATE RinDX::RinDX)
+    add_test(NAME rindx-d3d11-runtime COMMAND rindx-d3d11-runtime-test)
 endif()

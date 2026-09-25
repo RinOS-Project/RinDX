@@ -1,9 +1,10 @@
 # RinDX
 
 RinDX owns the DXGI COM ABI, factory/adapter/output catalog, private-data
-runtime, and presentation-backed swapchain. It depends only on public
-graphics-neutral RinGPU headers and links as `RinDX::RinDX` in the standalone
-CMake project.
+runtime, presentation-backed swapchain, and the bounded D3D11 software owner
+in `include/rindx/d3d11.h`. The D3D11 owner executes validated RinGPU/RSH1
+workloads through an explicit host contract; it does not claim Windows DLL/COM
+binary compatibility or accept unchecked DXBC/DXIL.
 
 Physical enumeration is supplied by the OS-Core adapter in
 `src/drivers/gpu/rin_gpu_dxgi_catalog_platform.c`. D3D11/D3D12/DXGI DLL export
@@ -23,8 +24,8 @@ cmake --build build
 | Requirement | Contract |
 | --- | --- |
 | Purpose | DXGI COM-shaped API, adapter/output catalog, provider seam, and presentation-backed swapchain for RinOS. |
-| Supported API | Public headers: include/rindx/com.h, catalog.h, display_topology.h, provider.h, and swapchain.h. |
-| Unsupported API | Not a complete Windows DXGI or D3D runtime. Physical enumeration, drivers, IRQ/DMA, and external backends remain OS-Core/provider responsibilities. |
+| Supported API | Public headers: include/rindx/com.h, catalog.h, display_topology.h, provider.h, swapchain.h, and d3d11.h. |
+| Unsupported API | Not a complete Windows DXGI/D3D binary runtime. Full D3D11 COM/DLL, DXBC/DXIL, D3D12, physical enumeration, drivers, IRQ/DMA, and external backends remain separate boundaries. |
 | ownership | Caller owns buffers; returned COM-shaped interfaces follow their vtable AddRef/Release rules. Handles are not device addresses. |
 | thread-safety | Synchronize shared mutable provider, catalog, and swapchain objects unless their interface states otherwise. |
 | limits | Catalog capacity, record sizes, and swapchain bounds are defined by the public headers; provider features are explicit. |
@@ -32,4 +33,4 @@ cmake --build build
 | ABI stability | COM vtable order and versioned provider records are ABI. No full Windows binary compatibility is promised. |
 | security | Public code has no private kernel dependency. Physical operations require the OS-Core provider boundary. |
 | build | Standalone CMake target RinDX::RinDX; see the CMake command above and public RinGPU dependency. |
-| test | Run registered CTest/Meson targets and repo CI. No tests/builds were run for this README update. |
+| test | Run registered CTest/Meson targets. The bounded D3D11 owner is covered by `rindx-d3d11-runtime-test`; physical and Windows loader evidence remains separate. |
