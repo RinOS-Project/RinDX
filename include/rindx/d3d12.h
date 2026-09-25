@@ -108,8 +108,17 @@ int rindx_d3d12_draw(RinDxD3d12CommandList* list,
                      const RinGpuDrawV1* draw);
 int rindx_d3d12_draw_indexed_instanced(
     RinDxD3d12CommandList* list, const RinGpuDrawIndexedV2* draw);
+/* Bounded ExecuteIndirect owners.  The command signature is fixed by the
+ * RinGPU indirect packet ABI; arbitrary D3D12 command-signature bytecode
+ * remains a separate COM/DXIL boundary and is rejected by this owner. */
+int rindx_d3d12_execute_indirect_draw(
+    RinDxD3d12CommandList* list, const RinGpuDrawIndirectV1* draw);
+int rindx_d3d12_execute_indirect_draw_indexed(
+    RinDxD3d12CommandList* list, const RinGpuDrawIndexedIndirectV1* draw);
 int rindx_d3d12_dispatch(RinDxD3d12CommandList* list,
                          const RinGpuDispatchV1* dispatch);
+int rindx_d3d12_execute_indirect_dispatch(
+    RinDxD3d12CommandList* list, const RinGpuDispatchIndirectV1* dispatch);
 int rindx_d3d12_end_render_pass(RinDxD3d12CommandList* list);
 int rindx_d3d12_execute_command_lists(RinDxD3d12Device* device,
                                       RinDxD3d12CommandList* list,

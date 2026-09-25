@@ -400,6 +400,24 @@ int rindx_d3d12_draw_indexed_instanced(
         list->device->runtime, list->command_list, draw);
 }
 
+int rindx_d3d12_execute_indirect_draw(
+    RinDxD3d12CommandList* list, const RinGpuDrawIndirectV1* draw)
+{
+    if (!list_valid(list) || !draw || draw->draw_count == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_draw_indirect(
+        list->device->runtime, list->command_list, draw);
+}
+
+int rindx_d3d12_execute_indirect_draw_indexed(
+    RinDxD3d12CommandList* list, const RinGpuDrawIndexedIndirectV1* draw)
+{
+    if (!list_valid(list) || !draw || draw->draw_count == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_draw_indexed_indirect(
+        list->device->runtime, list->command_list, draw);
+}
+
 int rindx_d3d12_dispatch(RinDxD3d12CommandList* list,
                          const RinGpuDispatchV1* dispatch)
 {
@@ -407,6 +425,15 @@ int rindx_d3d12_dispatch(RinDxD3d12CommandList* list,
         return RIN_GPU_ERROR_STATE;
     return ringpu_runtime_command_dispatch(list->device->runtime,
                                            list->command_list, dispatch);
+}
+
+int rindx_d3d12_execute_indirect_dispatch(
+    RinDxD3d12CommandList* list, const RinGpuDispatchIndirectV1* dispatch)
+{
+    if (!list_valid(list) || !dispatch || list->render_pass_active != 0u)
+        return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_command_dispatch_indirect(
+        list->device->runtime, list->command_list, dispatch);
 }
 
 int rindx_d3d12_end_render_pass(RinDxD3d12CommandList* list)

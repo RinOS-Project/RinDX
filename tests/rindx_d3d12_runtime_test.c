@@ -154,8 +154,12 @@ int main(void)
     RinGpuGraphicsPipelineNativeDescV2 pipeline_desc;
     RinGpuImageDescV1 image_desc;
     RinGpuDrawIndexedV2 draw;
+    RinGpuDrawIndirectV1 indirect_draw;
+    RinGpuDrawIndexedIndirectV1 indirect_indexed_draw;
+    RinGpuDispatchIndirectV1 indirect_dispatch;
     RinGpuBufferDescV1 vertex_desc;
     RinGpuBufferDescV1 index_desc;
+    RinGpuBufferDescV1 indirect_desc;
     RinGpuVertexAttributeV2 vertex_attribute;
     RinGpuVertexBufferLayoutV1 vertex_layout;
     RinGpuImageReadbackV1 readback;
@@ -168,6 +172,7 @@ int main(void)
     RinGpuHandle image = 0u;
     RinGpuHandle vertex_buffer = 0u;
     RinGpuHandle index_buffer = 0u;
+    RinGpuHandle indirect_buffer = 0u;
     uint8_t pixels[16u] = {0};
     uint64_t fence_value = 0u;
     const uint32_t feature_level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
@@ -265,6 +270,20 @@ int main(void)
         CHECK(rindx_d3d12_upload_buffer(&device, index_buffer, 0u, &index,
                                         sizeof(index)) == RIN_GPU_OK);
     }
+    memset(&indirect_desc, 0, sizeof(indirect_desc));
+    indirect_desc.abi_version = RIN_GPU_ABI_VERSION;
+    indirect_desc.struct_size = sizeof(indirect_desc);
+    indirect_desc.size_bytes = 20u;
+    indirect_desc.usage = RIN_GPU_BUFFER_INDIRECT | RIN_GPU_BUFFER_COPY_DESTINATION;
+    indirect_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    CHECK(rindx_d3d12_create_buffer(&device, &indirect_desc, &indirect_buffer) ==
+          RIN_GPU_OK);
+    {
+        const uint32_t indexed_packet[5] = {1u, 1u, 0u, 0u, 0u};
+        CHECK(rindx_d3d12_upload_buffer(&device, indirect_buffer, 0u,
+                                        indexed_packet,
+                                        sizeof(indexed_packet)) == RIN_GPU_OK);
+    }
     CHECK(rindx_d3d12_transition_image(&list, image,
                                        RIN_GPU_IMAGE_STATE_UNDEFINED,
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET) ==
@@ -286,6 +305,35 @@ int main(void)
     draw.vertex_buffers[0].binding = 0u;
     draw.vertex_buffers[0].buffer = vertex_buffer;
     CHECK(rindx_d3d12_draw_indexed_instanced(&list, &draw) == RIN_GPU_OK);
+    memset(&indirect_indexed_draw, 0, sizeof(indirect_indexed_draw));
+    indirect_indexed_draw.abi_version = RIN_GPU_ABI_VERSION;
+    indirect_indexed_draw.struct_size = sizeof(indirect_indexed_draw);
+    indirect_indexed_draw.pipeline = pipeline;
+    indirect_indexed_draw.color_target = image;
+    indirect_indexed_draw.index_buffer = index_buffer;
+    indirect_indexed_draw.indirect_buffer = indirect_buffer;
+    indirect_indexed_draw.index_format = RIN_GPU_INDEX_UINT8;
+    indirect_indexed_draw.draw_count = 1u;
+    indirect_indexed_draw.stride = 20u;
+    indirect_indexed_draw.vertex_count = 1u;
+    indirect_indexed_draw.binding_count = 1u;
+    indirect_indexed_draw.vertex_buffers[0].binding = 0u;
+    indirect_indexed_draw.vertex_buffers[0].buffer = vertex_buffer;
+    CHECK(rindx_d3d12_execute_indirect_draw_indexed(
+              &list, &indirect_indexed_draw) == RIN_GPU_OK);
+    memset(&indirect_draw, 0, sizeof(indirect_draw));
+    indirect_draw.abi_version = RIN_GPU_ABI_VERSION;
+    indirect_draw.struct_size = sizeof(indirect_draw);
+    indirect_draw.pipeline = pipeline;
+    indirect_draw.color_target = image;
+    indirect_draw.indirect_buffer = indirect_buffer;
+    indirect_draw.draw_count = 1u;
+    indirect_draw.stride = 20u;
+    indirect_draw.binding_count = 1u;
+    indirect_draw.vertex_buffers[0].binding = 0u;
+    indirect_draw.vertex_buffers[0].buffer = vertex_buffer;
+    CHECK(rindx_d3d12_execute_indirect_draw(&list, &indirect_draw) ==
+          RIN_GPU_OK);
     CHECK(rindx_d3d12_end_render_pass(&list) == RIN_GPU_OK);
     {
         RinGpuDispatchV1 dispatch;
@@ -299,6 +347,14 @@ int main(void)
         dispatch.group_count_z = 1u;
         CHECK(rindx_d3d12_dispatch(&list, &dispatch) == RIN_GPU_OK);
     }
+    memset(&indirect_dispatch, 0, sizeof(indirect_dispatch));
+    indirect_dispatch.abi_version = RIN_GPU_ABI_VERSION;
+    indirect_dispatch.struct_size = sizeof(indirect_dispatch);
+    indirect_dispatch.pipeline = compute_pipeline;
+    indirect_dispatch.bind_group = compute_bind_group;
+    indirect_dispatch.indirect_buffer = indirect_buffer;
+    CHECK(rindx_d3d12_execute_indirect_dispatch(&list, &indirect_dispatch) ==
+          RIN_GPU_OK);
     CHECK(rindx_d3d12_transition_image(&list, image,
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET,
                                        RIN_GPU_IMAGE_STATE_COPY_SOURCE) ==
@@ -329,6 +385,7 @@ int main(void)
     CHECK(rindx_d3d12_destroy_object(&device, vertex_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, index_buffer) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, indirect_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, image) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_device(&device) == RIN_GPU_OK);
     return 0;
