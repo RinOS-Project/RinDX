@@ -148,6 +148,27 @@ int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
     return ringpu_runtime_get_adapter_info(device->runtime, info);
 }
 
+int rindx_d3d12_get_node_count(const RinDxD3d12Device* device,
+                               uint32_t* count_out)
+{
+    if (count_out) *count_out = 0u;
+    if (!device_valid(device) || !count_out)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    *count_out = RIN_DX_D3D12_MAX_NODES;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d12_get_node_mask(const RinDxD3d12Device* device,
+                              uint32_t node_index, uint32_t* mask_out)
+{
+    if (mask_out) *mask_out = 0u;
+    if (!device_valid(device) || !mask_out ||
+        node_index >= RIN_DX_D3D12_MAX_NODES)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    *mask_out = RIN_DX_D3D12_NODE_MASK;
+    return RIN_GPU_OK;
+}
+
 int rindx_d3d12_check_feature_support(const RinDxD3d12Device* device,
                                       uint32_t feature,
                                       uint32_t* supported_out)

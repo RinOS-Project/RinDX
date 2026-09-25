@@ -437,8 +437,19 @@ int main(void)
     adapter_info.struct_size = sizeof(adapter_info);
     CHECK(rindx_d3d12_get_adapter_info(&device, &adapter_info) == RIN_GPU_OK);
     CHECK(adapter_info.queue_capabilities ==
-          (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
+           (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
            RIN_GPU_QUEUE_GRAPHICS));
+    {
+        uint32_t node_count = 0u;
+        uint32_t node_mask = 0u;
+        CHECK(rindx_d3d12_get_node_count(&device, &node_count) == RIN_GPU_OK &&
+              node_count == RIN_DX_D3D12_MAX_NODES);
+        CHECK(rindx_d3d12_get_node_mask(&device, 0u, &node_mask) ==
+                  RIN_GPU_OK &&
+              node_mask == RIN_DX_D3D12_NODE_MASK);
+        CHECK(rindx_d3d12_get_node_mask(&device, node_count, &node_mask) ==
+                  RIN_GPU_ERROR_INVALID_ARGUMENT && node_mask == 0u);
+    }
     {
         uint32_t supported = 0u;
         CHECK(rindx_d3d12_check_feature_support(

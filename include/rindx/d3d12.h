@@ -20,6 +20,8 @@
      RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS | \
      RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE | \
      RIN_DX_D3D12_FEATURE_RSH1_PIPELINE)
+#define RIN_DX_D3D12_MAX_NODES 1u
+#define RIN_DX_D3D12_NODE_MASK UINT32_C(0x00000001)
 #define RIN_DX_D3D12_MAP_READ 1u
 #define RIN_DX_D3D12_MAP_WRITE 2u
 #define RIN_DX_D3D12_MAP_READ_WRITE 3u
@@ -99,6 +101,12 @@ int rindx_d3d12_destroy_device(RinDxD3d12Device* device);
  * descriptor. Native node enumeration remains a separate boundary. */
 int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
                                  RinGpuAdapterInfoV1* info);
+/* Bounded host node model: one validated RinGPU software node. Native
+ * linked-node and multi-adapter enumeration remains unadvertised. */
+int rindx_d3d12_get_node_count(const RinDxD3d12Device* device,
+                               uint32_t* count_out);
+int rindx_d3d12_get_node_mask(const RinDxD3d12Device* device,
+                              uint32_t node_index, uint32_t* mask_out);
 /* Bounded host feature query. The result is derived only from the validated
  * adapter queue mask and this owner's RSH1/typed-table contract; unknown
  * native feature identifiers are rejected instead of reported supported. */
