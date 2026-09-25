@@ -127,6 +127,46 @@ static void make_storage_fragment(ShaderBlob* shader)
                 RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
 }
 
+static void make_sample_fragment(ShaderBlob* shader)
+{
+    memset(shader, 0, sizeof(*shader));
+    shader->header.magic = RIN_SHADER_MAGIC;
+    shader->header.version = RIN_SHADER_IR_VERSION;
+    shader->header.header_size = sizeof(shader->header);
+    shader->header.stage = RIN_SHADER_STAGE_FRAGMENT;
+    shader->header.instruction_count = 11u;
+    shader->header.register_count = 6u;
+    shader->header.output_count = 4u;
+    shader->header.resource_count = 2u;
+    shader->header.total_size = sizeof(shader->header) +
+                                11u * sizeof(shader->instructions[0]);
+    instruction(&shader->instructions[0], RIN_SHADER_OP_CONST_F32, 0u,
+                RIN_SHADER_UNUSED, f32_bits(0.25f));
+    instruction(&shader->instructions[1], RIN_SHADER_OP_CONST_F32, 1u,
+                RIN_SHADER_UNUSED, f32_bits(0.25f));
+    instruction(&shader->instructions[2], RIN_SHADER_OP_SAMPLE_IMAGE_2D_F32,
+                2u, 0u, 1u);
+    shader->instructions[2].source1 = 1u;
+    shader->instructions[2].resource = 0u;
+    shader->instructions[2].flags = RIN_SHADER_SAMPLE_COMPONENT_RED;
+    instruction(&shader->instructions[3], RIN_SHADER_OP_CONST_F32, 3u,
+                RIN_SHADER_UNUSED, f32_bits(0.0f));
+    instruction(&shader->instructions[4], RIN_SHADER_OP_CONST_F32, 4u,
+                RIN_SHADER_UNUSED, f32_bits(0.0f));
+    instruction(&shader->instructions[5], RIN_SHADER_OP_CONST_F32, 5u,
+                RIN_SHADER_UNUSED, f32_bits(1.0f));
+    instruction(&shader->instructions[6], RIN_SHADER_OP_STORE_OUTPUT_F32,
+                RIN_SHADER_UNUSED, 2u, 0u);
+    instruction(&shader->instructions[7], RIN_SHADER_OP_STORE_OUTPUT_F32,
+                RIN_SHADER_UNUSED, 3u, 1u);
+    instruction(&shader->instructions[8], RIN_SHADER_OP_STORE_OUTPUT_F32,
+                RIN_SHADER_UNUSED, 4u, 2u);
+    instruction(&shader->instructions[9], RIN_SHADER_OP_STORE_OUTPUT_F32,
+                RIN_SHADER_UNUSED, 5u, 3u);
+    instruction(&shader->instructions[10], RIN_SHADER_OP_RETURN,
+                RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
+}
+
 static void make_compute_shader(ShaderBlob* shader)
 {
     memset(shader, 0, sizeof(*shader));
@@ -205,6 +245,7 @@ int main(void)
     RinDxD3d11Context context;
     ShaderBlob vertex;
     ShaderBlob fragment;
+    ShaderBlob sample_fragment;
     ShaderBlob compute;
     RinGpuGraphicsPipelineNativeDescV2 pipeline_desc;
     RinGpuVertexAttributeV2 vertex_attribute;
@@ -215,8 +256,11 @@ int main(void)
     RinGpuImageUploadV1 texture3d_upload;
     RinGpuImageReadbackV1 texture3d_readback;
     RinGpuImageDescV1 storage_desc;
+    RinGpuImageDescV1 sampled_desc;
+    RinGpuImageUploadV1 sampled_upload;
     RinGpuImageTransitionV1 transition;
     RinGpuDrawIndexedV2 draw;
+    RinGpuDrawIndexedV2 sample_draw;
     RinGpuBufferDescV1 vertex_desc;
     RinGpuBufferDescV1 index_desc;
     RinGpuImageReadbackV1 readback;
@@ -238,7 +282,9 @@ int main(void)
     RinDxD3d11MappedResource mapped;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
+    RinGpuHandle sample_fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
+    RinGpuHandle sample_pipeline = 0u;
     RinGpuHandle invalid_pipeline = 0u;
     RinGpuHandle depth_pipeline = 0u;
     RinGpuHandle invalid_depth_pipeline = 0u;
@@ -246,6 +292,7 @@ int main(void)
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
     RinGpuHandle graphics_bind_group = 0u;
+    RinGpuHandle sample_bind_group = 0u;
     RinGpuHandle sampler = 0u;
     RinGpuHandle invalid_sampler = 0u;
     RinGpuHandle occlusion_query = 0u;
@@ -254,6 +301,8 @@ int main(void)
     RinGpuHandle texture1d = 0u;
     RinGpuHandle texture3d = 0u;
     RinGpuHandle storage_image = 0u;
+    RinGpuHandle sampled_image = 0u;
+    RinGpuHandle sample_target = 0u;
     RinGpuHandle vertex_buffer = 0u;
     RinGpuHandle non_cpu_buffer = 0u;
     RinGpuHandle index_buffer = 0u;
@@ -277,6 +326,10 @@ int main(void)
     uint8_t depth_pixels[32u] = {0};
     uint8_t texture3d_source[32u] = {0};
     uint8_t texture3d_pixels[32u] = {0};
+    uint8_t sampled_source_pixels[16u] = {
+        64u, 32u, 16u, 255u, 64u, 32u, 16u, 255u,
+        64u, 32u, 16u, 255u, 64u, 32u, 16u, 255u};
+    uint8_t sampled_pixels[16u] = {0};
     uint8_t buffer_readback[16u] = {0};
     static const uint8_t transfer_source_pixels[16u] = {
         9u, 8u, 7u, 255u, 19u, 18u, 17u, 255u,
@@ -308,11 +361,15 @@ int main(void)
           RIN_GPU_OK);
     make_vertex(&vertex);
     make_storage_fragment(&fragment);
+    make_sample_fragment(&sample_fragment);
     CHECK(rindx_d3d11_create_shader(&device, &vertex, vertex.header.total_size,
                                     &vertex_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_shader(&device, &fragment,
                                     fragment.header.total_size,
                                     &fragment_shader) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_shader(&device, &sample_fragment,
+                                    sample_fragment.header.total_size,
+                                    &sample_fragment_shader) == RIN_GPU_OK);
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
     pipeline_desc.base.abi_version = RIN_GPU_ABI_VERSION;
     pipeline_desc.base.struct_size = sizeof(pipeline_desc.base);
@@ -345,6 +402,11 @@ int main(void)
               &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
               1u, NULL, 0u,
               &pipeline) == RIN_GPU_OK);
+    pipeline_desc.base.fragment_shader = sample_fragment_shader;
+    CHECK(rindx_d3d11_create_graphics_pipeline(
+              &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
+              1u, NULL, 0u, &sample_pipeline) == RIN_GPU_OK);
+    pipeline_desc.base.fragment_shader = fragment_shader;
     pipeline_desc.base.source_color_factor = 99u;
     CHECK(rindx_d3d11_create_graphics_pipeline(
               &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
@@ -434,6 +496,46 @@ int main(void)
     CHECK(rindx_d3d11_upload_image(&device, texture3d, &texture3d_upload,
                                    texture3d_source,
                                    sizeof(texture3d_source)) == RIN_GPU_OK);
+    sampled_desc = image_desc;
+    sampled_desc.usage = RIN_GPU_IMAGE_SAMPLED |
+                         RIN_GPU_IMAGE_COPY_DESTINATION;
+    sampled_desc.flags = RIN_GPU_IMAGE_CPU_VISIBLE;
+    CHECK(rindx_d3d11_create_texture2d(&device, &sampled_desc,
+                                       &sampled_image) == RIN_GPU_OK);
+    sampled_desc = image_desc;
+    sampled_desc.usage = RIN_GPU_IMAGE_COPY_SOURCE |
+                         RIN_GPU_IMAGE_COLOR_TARGET;
+    sampled_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
+    CHECK(rindx_d3d11_create_texture2d(&device, &sampled_desc,
+                                       &sample_target) == RIN_GPU_OK);
+    memset(&sampled_upload, 0, sizeof(sampled_upload));
+    sampled_upload.abi_version = RIN_GPU_ABI_VERSION;
+    sampled_upload.struct_size = sizeof(sampled_upload);
+    sampled_upload.width = 2u;
+    sampled_upload.height = 2u;
+    sampled_upload.depth = 1u;
+    CHECK(rindx_d3d11_upload_image(&device, sampled_image, &sampled_upload,
+                                   sampled_source_pixels,
+                                   sizeof(sampled_source_pixels)) == RIN_GPU_OK);
+    {
+        RinGpuGraphicsBindingV1 sampled_bindings[2];
+        memset(sampled_bindings, 0, sizeof(sampled_bindings));
+        sampled_bindings[0].abi_version = RIN_GPU_ABI_VERSION;
+        sampled_bindings[0].struct_size = sizeof(sampled_bindings[0]);
+        sampled_bindings[0].binding = 0u;
+        sampled_bindings[0].kind = RIN_SHADER_RESOURCE_SAMPLED_IMAGE;
+        sampled_bindings[0].access = RIN_GPU_RESOURCE_READ;
+        sampled_bindings[0].resource = sampled_image;
+        sampled_bindings[1].abi_version = RIN_GPU_ABI_VERSION;
+        sampled_bindings[1].struct_size = sizeof(sampled_bindings[1]);
+        sampled_bindings[1].binding = 1u;
+        sampled_bindings[1].kind = RIN_SHADER_RESOURCE_SAMPLER;
+        sampled_bindings[1].access = 0u;
+        sampled_bindings[1].resource = sampler;
+        CHECK(rindx_d3d11_create_graphics_bind_group(
+                  &device, sample_pipeline, sampled_bindings, 2u,
+                  &sample_bind_group) == RIN_GPU_OK);
+    }
     CHECK(rindx_d3d11_transition_image(
               &context, texture3d, RIN_GPU_IMAGE_STATE_COPY_DESTINATION,
               RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
@@ -651,6 +753,12 @@ int main(void)
                                        transition.before_state,
                                        transition.after_state) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(
+              &context, sampled_image, RIN_GPU_IMAGE_STATE_COPY_DESTINATION,
+              RIN_GPU_IMAGE_STATE_SHADER_READ) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &context, sample_target, RIN_GPU_IMAGE_STATE_UNDEFINED,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
               &context, storage_image, RIN_GPU_IMAGE_STATE_UNDEFINED,
               RIN_GPU_IMAGE_STATE_SHADER_READ) == RIN_GPU_OK);
     CHECK(rindx_d3d11_begin_query(&context, occlusion_query) == RIN_GPU_OK);
@@ -688,6 +796,17 @@ int main(void)
     draw.vertex_buffers[0].buffer = vertex_buffer;
     CHECK(rindx_d3d11_draw_indexed_instanced(&context, &draw) == RIN_GPU_OK);
     CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_render_pass(&context, sample_target, 0u, 1u,
+                                        0.0f, 0.0f, 0.0f, 1.0f,
+                                        1.0f) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_bind_graphics_resources(&context, sample_bind_group) ==
+          RIN_GPU_OK);
+    sample_draw = draw;
+    sample_draw.pipeline = sample_pipeline;
+    sample_draw.color_target = sample_target;
+    CHECK(rindx_d3d11_draw_indexed_instanced(&context, &sample_draw) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_end_query(&context, occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(
               &context, storage_image, RIN_GPU_IMAGE_STATE_SHADER_READ,
@@ -708,6 +827,9 @@ int main(void)
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET,
                                        RIN_GPU_IMAGE_STATE_COPY_SOURCE) ==
           RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &context, sample_target, RIN_GPU_IMAGE_STATE_COLOR_TARGET,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
     CHECK(rindx_d3d11_close_and_submit(&context, &fence_value) == RIN_GPU_OK);
     CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
           RIN_GPU_OK);
@@ -722,6 +844,17 @@ int main(void)
                                      sizeof(texture3d_pixels)) == RIN_GPU_OK);
     CHECK(memcmp(texture3d_pixels, texture3d_source,
                  sizeof(texture3d_pixels)) == 0);
+    memset(&readback, 0, sizeof(readback));
+    readback.abi_version = RIN_GPU_ABI_VERSION;
+    readback.struct_size = sizeof(readback);
+    readback.width = 2u;
+    readback.height = 2u;
+    readback.depth = 1u;
+    CHECK(rindx_d3d11_readback_image(&device, sample_target, &readback,
+                                     sampled_pixels,
+                                     sizeof(sampled_pixels)) == RIN_GPU_OK);
+    CHECK(sampled_pixels[0u] >= 60u && sampled_pixels[1u] == 0u &&
+          sampled_pixels[2u] == 0u && sampled_pixels[3u] == 255u);
     memset(&query_result, 0, sizeof(query_result));
     query_result.struct_size = sizeof(query_result);
     query_result.abi_version = RIN_GPU_ABI_VERSION;
@@ -823,12 +956,16 @@ int main(void)
     CHECK(rindx_d3d11_destroy_context(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, sample_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, graphics_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, sample_pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, depth_pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, sampler) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, compute_pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, compute_shader) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, sample_fragment_shader) ==
+          RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, fragment_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, vertex_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);
@@ -841,6 +978,8 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, clear_target) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, storage_image) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, sampled_image) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, sample_target) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, mip_image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, transfer_buffer_source) ==
           RIN_GPU_OK);
