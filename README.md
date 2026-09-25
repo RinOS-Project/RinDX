@@ -15,16 +15,19 @@ backends, and hardware evidence remain outside this software split.
 
 The bounded D3D11/D3D12 owners also expose validated RinGPU buffer/image copy,
 resolve, clear, and image-upload operations. They require explicit regions and
-RinGPU resource states; native COM command bytecode, Map/Unmap,
-UpdateSubresource, GenerateMips, and full Windows ABI compatibility remain
-fail-closed boundaries. The host runtime tests cover transfer and clear
+RinGPU resource states; native COM command bytecode, Map/Unmap, full
+UpdateSubresource/GenerateMips semantics, and full Windows ABI compatibility
+remain fail-closed boundaries. The host runtime tests cover D3D11 buffer and
+depth/stencil clear, D3D12 buffer clear, image transfer, mip generation, and
 readback in addition to draw/dispatch.
 
 D3D11 additionally exposes bounded buffer/Texture2D UpdateSubresource and
 GenerateMips. GenerateMips requires a fully upload-ready 2D mip chain and
 lowers each adjacent level through RinGPU linear blit with explicit per-mip
 state transitions; unsupported formats, dimensions, and incomplete chains are
-rejected rather than synthesized.
+rejected rather than synthesized. D3D11 depth/stencil clear is limited to the
+validated D32_FLOAT_S8_UINT software path and requires explicit copy-state
+transitions.
 
 Build:
 
