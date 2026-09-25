@@ -8,6 +8,15 @@
 
 #define RIN_DX_D3D12_VERSION 1u
 #define RIN_DX_D3D12_FEATURE_LEVEL_12_0 UINT32_C(0xc000)
+#define RIN_DX_D3D12_FEATURE_GRAPHICS_COMMANDS 1u
+#define RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS 2u
+#define RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE 3u
+#define RIN_DX_D3D12_FEATURE_RSH1_PIPELINE 4u
+#define RIN_DX_D3D12_FEATURE_KNOWN \
+    (RIN_DX_D3D12_FEATURE_GRAPHICS_COMMANDS | \
+     RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS | \
+     RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE | \
+     RIN_DX_D3D12_FEATURE_RSH1_PIPELINE)
 #define RIN_DX_D3D12_MAP_READ 1u
 #define RIN_DX_D3D12_MAP_WRITE 2u
 #define RIN_DX_D3D12_MAP_READ_WRITE 3u
@@ -76,6 +85,12 @@ int rindx_d3d12_destroy_device(RinDxD3d12Device* device);
  * descriptor. Native node enumeration remains a separate boundary. */
 int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
                                  RinGpuAdapterInfoV1* info);
+/* Bounded host feature query. The result is derived only from the validated
+ * adapter queue mask and this owner's RSH1/typed-table contract; unknown
+ * native feature identifiers are rejected instead of reported supported. */
+int rindx_d3d12_check_feature_support(const RinDxD3d12Device* device,
+                                      uint32_t feature,
+                                      uint32_t* supported_out);
 /* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
  * HRESULT translation and physical reset are separate boundaries. */
 int rindx_d3d12_get_device_removed_reason(

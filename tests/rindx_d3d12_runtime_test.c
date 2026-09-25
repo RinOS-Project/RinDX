@@ -313,6 +313,23 @@ int main(void)
     CHECK(adapter_info.queue_capabilities ==
           (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
            RIN_GPU_QUEUE_GRAPHICS));
+    {
+        uint32_t supported = 0u;
+        CHECK(rindx_d3d12_check_feature_support(
+                  &device, RIN_DX_D3D12_FEATURE_GRAPHICS_COMMANDS,
+                  &supported) == RIN_GPU_OK && supported != 0u);
+        CHECK(rindx_d3d12_check_feature_support(
+                  &device, RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS,
+                  &supported) == RIN_GPU_OK && supported != 0u);
+        CHECK(rindx_d3d12_check_feature_support(
+                  &device, RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE,
+                  &supported) == RIN_GPU_OK && supported != 0u);
+        CHECK(rindx_d3d12_check_feature_support(
+                  &device, RIN_DX_D3D12_FEATURE_RSH1_PIPELINE,
+                  &supported) == RIN_GPU_OK && supported != 0u);
+        CHECK(rindx_d3d12_check_feature_support(&device, 99u, &supported) ==
+              RIN_GPU_ERROR_INVALID_ARGUMENT && supported == 0u);
+    }
     CHECK(rindx_d3d12_create_command_allocator(&device, &allocator) ==
           RIN_GPU_OK);
     CHECK(rindx_d3d12_create_command_list(&device, &allocator, &list) ==

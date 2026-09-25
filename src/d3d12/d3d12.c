@@ -120,6 +120,46 @@ int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
     return ringpu_runtime_get_adapter_info(device->runtime, info);
 }
 
+int rindx_d3d12_check_feature_support(const RinDxD3d12Device* device,
+                                      uint32_t feature,
+                                      uint32_t* supported_out)
+{
+    RinGpuAdapterInfoV1 info;
+    int result;
+
+    if (supported_out) *supported_out = 0u;
+    if (!device_valid(device) || !supported_out ||
+        (feature & ~RIN_DX_D3D12_FEATURE_KNOWN) != 0u || feature == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&info, 0, sizeof(info));
+    info.abi_version = RIN_GPU_ABI_VERSION;
+    info.struct_size = sizeof(info);
+    result = ringpu_runtime_get_adapter_info(device->runtime, &info);
+    if (result != RIN_GPU_OK) return result;
+    switch (feature) {
+    case RIN_DX_D3D12_FEATURE_GRAPHICS_COMMANDS:
+        *supported_out =
+            (info.queue_capabilities & RIN_GPU_QUEUE_GRAPHICS) != 0u;
+        return RIN_GPU_OK;
+    case RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS:
+        *supported_out =
+            (info.queue_capabilities & RIN_GPU_QUEUE_COMPUTE) != 0u;
+        return RIN_GPU_OK;
+    case RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE:
+        *supported_out =
+            (info.queue_capabilities & RIN_GPU_QUEUE_GRAPHICS) != 0u;
+        return RIN_GPU_OK;
+    case RIN_DX_D3D12_FEATURE_RSH1_PIPELINE:
+        *supported_out =
+            (info.queue_capabilities &
+             (RIN_GPU_QUEUE_GRAPHICS | RIN_GPU_QUEUE_COMPUTE)) != 0u;
+        return RIN_GPU_OK;
+    default:
+        *supported_out = 0u;
+        return RIN_GPU_ERROR_UNSUPPORTED;
+    }
+}
+
 int rindx_d3d12_get_device_removed_reason(
     const RinDxD3d12Device* device)
 {
