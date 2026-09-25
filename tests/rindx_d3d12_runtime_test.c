@@ -345,6 +345,10 @@ int main(void)
                   &supported) == RIN_GPU_OK && supported != 0u);
         CHECK(rindx_d3d12_check_feature_support(&device, 99u, &supported) ==
               RIN_GPU_ERROR_INVALID_ARGUMENT && supported == 0u);
+        supported = 0u;
+        CHECK(rindx_d3d12_get_pipeline_cache_policy(&device, &supported) ==
+              RIN_GPU_OK &&
+              supported == RIN_DX_D3D12_PIPELINE_CACHE_POLICY_CREATE_ONLY);
     }
     CHECK(rindx_d3d12_create_command_allocator(&device, &allocator) ==
           RIN_GPU_OK);

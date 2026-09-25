@@ -160,6 +160,16 @@ int rindx_d3d12_check_feature_support(const RinDxD3d12Device* device,
     }
 }
 
+int rindx_d3d12_get_pipeline_cache_policy(
+    const RinDxD3d12Device* device, uint32_t* policy_out)
+{
+    if (policy_out) *policy_out = 0u;
+    if (!device_valid(device) || !policy_out)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    *policy_out = RIN_DX_D3D12_PIPELINE_CACHE_POLICY_CREATE_ONLY;
+    return RIN_GPU_OK;
+}
+
 int rindx_d3d12_get_device_removed_reason(
     const RinDxD3d12Device* device)
 {

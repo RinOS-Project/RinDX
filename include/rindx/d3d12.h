@@ -12,6 +12,7 @@
 #define RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS 2u
 #define RIN_DX_D3D12_FEATURE_DESCRIPTOR_TABLE 3u
 #define RIN_DX_D3D12_FEATURE_RSH1_PIPELINE 4u
+#define RIN_DX_D3D12_PIPELINE_CACHE_POLICY_CREATE_ONLY 1u
 #define RIN_DX_D3D12_FEATURE_KNOWN \
     (RIN_DX_D3D12_FEATURE_GRAPHICS_COMMANDS | \
      RIN_DX_D3D12_FEATURE_COMPUTE_COMMANDS | \
@@ -91,6 +92,11 @@ int rindx_d3d12_get_adapter_info(const RinDxD3d12Device* device,
 int rindx_d3d12_check_feature_support(const RinDxD3d12Device* device,
                                       uint32_t feature,
                                       uint32_t* supported_out);
+/* The bounded RSH1 owner has no serialized native blob format. It exposes a
+ * create-only policy so callers cannot mistake an unvalidated cache/library
+ * blob for a hit; native ID3D12PipelineLibrary is a separate ABI boundary. */
+int rindx_d3d12_get_pipeline_cache_policy(
+    const RinDxD3d12Device* device, uint32_t* policy_out);
 /* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
  * HRESULT translation and physical reset are separate boundaries. */
 int rindx_d3d12_get_device_removed_reason(
