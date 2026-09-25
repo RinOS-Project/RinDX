@@ -57,6 +57,8 @@ typedef struct RinDxD3d11Context {
     uint32_t predication_enabled;
     uint32_t deferred_context;
     uint32_t reserved0;
+    uint32_t multithread_protected;
+    uint32_t multithread_lock;
 } RinDxD3d11Context;
 
 typedef struct RinDxD3d11MappedResource {
@@ -90,6 +92,12 @@ int rindx_d3d11_create_context(RinDxD3d11Device* device,
 int rindx_d3d11_create_deferred_context(RinDxD3d11Device* device,
                                         RinDxD3d11Context* context_out);
 int rindx_d3d11_destroy_context(RinDxD3d11Context* context);
+/* Bounded ID3D11Multithread-equivalent critical section. Callers pair
+ * Enter/Leave around operations that share a context; invalid pairing fails. */
+int rindx_d3d11_set_multithread_protected(RinDxD3d11Context* context,
+                                          uint32_t enabled);
+int rindx_d3d11_enter_multithread(RinDxD3d11Context* context);
+int rindx_d3d11_leave_multithread(RinDxD3d11Context* context);
 int rindx_d3d11_finish_command_list(RinDxD3d11Context* context,
                                     RinGpuHandle* command_list_out);
 int rindx_d3d11_execute_command_list(RinDxD3d11Context* context,
@@ -232,14 +240,14 @@ int rindx_d3d11_readback_image(
 #if defined(__cplusplus)
 static_assert(sizeof(RinDxD3d11Device) == 48u,
               "RinDX D3D11 device ABI drift");
-static_assert(sizeof(RinDxD3d11Context) == 112u,
+static_assert(sizeof(RinDxD3d11Context) == 120u,
               "RinDX D3D11 context ABI drift");
 static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
               "RinDX D3D11 mapped-resource ABI drift");
 #else
 _Static_assert(sizeof(RinDxD3d11Device) == 48u,
                "RinDX D3D11 device ABI drift");
-_Static_assert(sizeof(RinDxD3d11Context) == 112u,
+_Static_assert(sizeof(RinDxD3d11Context) == 120u,
                "RinDX D3D11 context ABI drift");
 _Static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
                "RinDX D3D11 mapped-resource ABI drift");

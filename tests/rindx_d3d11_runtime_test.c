@@ -378,6 +378,12 @@ int main(void)
                 (unsigned long long)surface.reserved[1]);
     CHECK(create_result == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_context(&device, &context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_set_multithread_protected(&context, 1u) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_enter_multithread(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_enter_multithread(&context) == RIN_GPU_ERROR_BUSY);
+    CHECK(rindx_d3d11_leave_multithread(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_leave_multithread(&context) == RIN_GPU_ERROR_STATE);
+    CHECK(rindx_d3d11_set_multithread_protected(&context, 0u) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_OCCLUSION,
                                    &occlusion_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_TIMESTAMP,

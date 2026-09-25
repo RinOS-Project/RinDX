@@ -23,6 +23,8 @@ static int context_valid(const RinDxD3d11Context* context)
            context->version == RIN_DX_D3D11_VERSION &&
            device_valid(context->device) && context->command_list != 0u &&
            context->deferred_context <= 1u && context->reserved0 == 0u &&
+           context->multithread_protected <= 1u &&
+           context->multithread_lock <= 1u &&
            context->state == RIN_DX_D3D11_STATE_READY;
 }
 
@@ -157,7 +159,7 @@ int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
 {
     int result;
     if (!context_valid(context) || context->render_pass_active != 0u ||
-        context->mapped_buffer != 0u)
+        context->mapped_buffer != 0u || context->multithread_lock != 0u)
         return RIN_GPU_ERROR_STATE;
     result = ringpu_runtime_destroy_object(context->device->runtime,
                                            context->command_list);
@@ -168,6 +170,37 @@ int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
         if (result != RIN_GPU_OK) return result;
     }
     memset(context, 0, sizeof(*context));
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_set_multithread_protected(RinDxD3d11Context* context,
+                                          uint32_t enabled)
+{
+    if (!context_valid(context) || enabled > 1u ||
+        context->multithread_lock != 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    context->multithread_protected = enabled;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_enter_multithread(RinDxD3d11Context* context)
+{
+    uint32_t expected = 0u;
+    if (!context_valid(context)) return RIN_GPU_ERROR_STATE;
+    if (context->multithread_protected == 0u) return RIN_GPU_OK;
+    if (!__atomic_compare_exchange_n(&context->multithread_lock, &expected, 1u,
+                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return RIN_GPU_ERROR_BUSY;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_leave_multithread(RinDxD3d11Context* context)
+{
+    if (!context_valid(context)) return RIN_GPU_ERROR_STATE;
+    if (context->multithread_protected == 0u ||
+        __atomic_exchange_n(&context->multithread_lock, 0u,
+                            __ATOMIC_RELEASE) == 0u)
+        return RIN_GPU_ERROR_STATE;
     return RIN_GPU_OK;
 }
 
