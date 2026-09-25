@@ -260,6 +260,16 @@ int rindx_d3d12_create_compute_pipeline(
                                                   pipeline_out);
 }
 
+int rindx_d3d12_create_compute_bind_group(
+    RinDxD3d12Device* device, RinGpuHandle pipeline,
+    const RinGpuBufferBindingV1* bindings, uint32_t binding_count,
+    RinGpuHandle* bind_group_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_create_compute_bind_group(
+        device->runtime, pipeline, bindings, binding_count, bind_group_out);
+}
+
 int rindx_d3d12_create_descriptor_heap(
     RinDxD3d12Device* device, RinGpuHandle pipeline,
     const RinGpuGraphicsBindingV1* bindings, uint32_t binding_count,

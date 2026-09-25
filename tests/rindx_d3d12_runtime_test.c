@@ -71,6 +71,24 @@ static void make_shader(ShaderBlob* shader, uint32_t stage)
                 RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
 }
 
+static void make_compute_shader(ShaderBlob* shader)
+{
+    memset(shader, 0, sizeof(*shader));
+    shader->header.magic = RIN_SHADER_MAGIC;
+    shader->header.version = RIN_SHADER_IR_VERSION;
+    shader->header.header_size = sizeof(shader->header);
+    shader->header.stage = RIN_SHADER_STAGE_COMPUTE;
+    shader->header.instruction_count = 1u;
+    shader->header.register_count = 1u;
+    shader->header.workgroup_x = 1u;
+    shader->header.workgroup_y = 1u;
+    shader->header.workgroup_z = 1u;
+    shader->header.total_size = sizeof(shader->header) +
+                                sizeof(shader->instructions[0]);
+    instruction(&shader->instructions[0], RIN_SHADER_OP_RETURN,
+                RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
+}
+
 static int present(void* context, const RinGpuSoftwarePresentedImageV1* image)
 {
     (void)context;
@@ -132,6 +150,7 @@ int main(void)
     RinDxD3d12CommandList list;
     ShaderBlob vertex;
     ShaderBlob fragment;
+    ShaderBlob compute;
     RinGpuGraphicsPipelineNativeDescV2 pipeline_desc;
     RinGpuImageDescV1 image_desc;
     RinGpuDrawIndexedV2 draw;
@@ -143,6 +162,9 @@ int main(void)
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
+    RinGpuHandle compute_shader = 0u;
+    RinGpuHandle compute_pipeline = 0u;
+    RinGpuHandle compute_bind_group = 0u;
     RinGpuHandle image = 0u;
     RinGpuHandle vertex_buffer = 0u;
     RinGpuHandle index_buffer = 0u;
@@ -190,6 +212,16 @@ int main(void)
               &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
               1u, NULL, 0u,
               &pipeline) == RIN_GPU_OK);
+    make_compute_shader(&compute);
+    CHECK(rindx_d3d12_create_shader(&device, &compute,
+                                    compute.header.total_size,
+                                    &compute_shader) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_compute_pipeline(&device, compute_shader,
+                                              &compute_pipeline) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_compute_bind_group(&device, compute_pipeline,
+                                                NULL, 0u,
+                                                &compute_bind_group) ==
+          RIN_GPU_OK);
 
     memset(&image_desc, 0, sizeof(image_desc));
     image_desc.abi_version = RIN_GPU_ABI_VERSION;
@@ -255,6 +287,18 @@ int main(void)
     draw.vertex_buffers[0].buffer = vertex_buffer;
     CHECK(rindx_d3d12_draw_indexed_instanced(&list, &draw) == RIN_GPU_OK);
     CHECK(rindx_d3d12_end_render_pass(&list) == RIN_GPU_OK);
+    {
+        RinGpuDispatchV1 dispatch;
+        memset(&dispatch, 0, sizeof(dispatch));
+        dispatch.abi_version = RIN_GPU_ABI_VERSION;
+        dispatch.struct_size = sizeof(dispatch);
+        dispatch.pipeline = compute_pipeline;
+        dispatch.bind_group = compute_bind_group;
+        dispatch.group_count_x = 1u;
+        dispatch.group_count_y = 1u;
+        dispatch.group_count_z = 1u;
+        CHECK(rindx_d3d12_dispatch(&list, &dispatch) == RIN_GPU_OK);
+    }
     CHECK(rindx_d3d12_transition_image(&list, image,
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET,
                                        RIN_GPU_IMAGE_STATE_COPY_SOURCE) ==
@@ -278,6 +322,9 @@ int main(void)
     CHECK(rindx_d3d12_reset_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, pipeline) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, compute_pipeline) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, compute_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, fragment_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, vertex_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);

@@ -192,6 +192,16 @@ int rindx_d3d11_create_compute_pipeline(
                                                   pipeline_out);
 }
 
+int rindx_d3d11_create_compute_bind_group(
+    RinDxD3d11Device* device, RinGpuHandle pipeline,
+    const RinGpuBufferBindingV1* bindings, uint32_t binding_count,
+    RinGpuHandle* bind_group_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_create_compute_bind_group(
+        device->runtime, pipeline, bindings, binding_count, bind_group_out);
+}
+
 int rindx_d3d11_destroy_object(RinDxD3d11Device* device, RinGpuHandle object)
 {
     if (!device_valid(device) || object == 0u)
