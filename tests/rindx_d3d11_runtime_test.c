@@ -36,7 +36,6 @@ static uint32_t f32_bits(float value)
 
 static void make_vertex(ShaderBlob* shader)
 {
-    static const float position[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     uint32_t index;
     memset(shader, 0, sizeof(*shader));
     shader->header.magic = RIN_SHADER_MAGIC;
@@ -45,13 +44,18 @@ static void make_vertex(ShaderBlob* shader)
     shader->header.stage = RIN_SHADER_STAGE_VERTEX;
     shader->header.instruction_count = 9u;
     shader->header.register_count = 4u;
+    shader->header.input_count = 1u;
     shader->header.output_count = 4u;
     shader->header.total_size = sizeof(shader->header) +
                                 9u * sizeof(shader->instructions[0]);
-    for (index = 0u; index < 4u; ++index) {
+    instruction(&shader->instructions[0], RIN_SHADER_OP_LOAD_INPUT_F32,
+                0u, RIN_SHADER_UNUSED, 0u);
+    for (index = 1u; index < 4u; ++index) {
         instruction(&shader->instructions[index], RIN_SHADER_OP_CONST_F32,
                     (uint16_t)index, RIN_SHADER_UNUSED,
-                    f32_bits(position[index]));
+                    f32_bits(index == 3u ? 1.0f : 0.0f));
+    }
+    for (index = 0u; index < 4u; ++index) {
         instruction(&shader->instructions[4u + index],
                     RIN_SHADER_OP_STORE_OUTPUT_F32, RIN_SHADER_UNUSED,
                     (uint16_t)index, index);
@@ -147,14 +151,20 @@ int main(void)
     ShaderBlob vertex;
     ShaderBlob fragment;
     RinGpuGraphicsPipelineNativeDescV2 pipeline_desc;
+    RinGpuVertexAttributeV2 vertex_attribute;
+    RinGpuVertexBufferLayoutV1 vertex_layout;
     RinGpuImageDescV1 image_desc;
     RinGpuImageTransitionV1 transition;
-    RinGpuDrawV1 draw;
+    RinGpuDrawIndexedV2 draw;
+    RinGpuBufferDescV1 vertex_desc;
+    RinGpuBufferDescV1 index_desc;
     RinGpuImageReadbackV1 readback;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
     RinGpuHandle image = 0u;
+    RinGpuHandle vertex_buffer = 0u;
+    RinGpuHandle index_buffer = 0u;
     uint8_t pixels[16u] = {0};
     uint64_t fence_value = 0u;
     const uint32_t feature_level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
@@ -195,8 +205,18 @@ int main(void)
     pipeline_desc.base.cull_mode = RIN_GPU_CULL_NONE;
     pipeline_desc.base.front_face = RIN_GPU_FRONT_FACE_COUNTER_CLOCKWISE;
     pipeline_desc.base.struct_size = sizeof(pipeline_desc);
+    memset(&vertex_attribute, 0, sizeof(vertex_attribute));
+    vertex_attribute.abi_version = RIN_GPU_ABI_VERSION;
+    vertex_attribute.struct_size = sizeof(vertex_attribute);
+    vertex_attribute.location = 0u;
+    vertex_attribute.format = RIN_GPU_VERTEX_FLOAT32;
+    vertex_attribute.binding = 0u;
+    memset(&vertex_layout, 0, sizeof(vertex_layout));
+    vertex_layout.binding = 0u;
+    vertex_layout.stride = sizeof(float);
     CHECK(rindx_d3d11_create_graphics_pipeline(
-              &device, &pipeline_desc, NULL, 0u, NULL, 0u, NULL, 0u,
+              &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
+              1u, NULL, 0u,
               &pipeline) == RIN_GPU_OK);
 
     memset(&image_desc, 0, sizeof(image_desc));
@@ -215,6 +235,32 @@ int main(void)
     image_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
     CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
           RIN_GPU_OK);
+    memset(&vertex_desc, 0, sizeof(vertex_desc));
+    vertex_desc.abi_version = RIN_GPU_ABI_VERSION;
+    vertex_desc.struct_size = sizeof(vertex_desc);
+    vertex_desc.size_bytes = sizeof(float);
+    vertex_desc.usage = RIN_GPU_BUFFER_VERTEX | RIN_GPU_BUFFER_COPY_DESTINATION;
+    vertex_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    CHECK(rindx_d3d11_create_buffer(&device, &vertex_desc, &vertex_buffer) ==
+          RIN_GPU_OK);
+    {
+        const float position = 0.0f;
+        CHECK(rindx_d3d11_upload_buffer(&device, vertex_buffer, 0u, &position,
+                                        sizeof(position)) == RIN_GPU_OK);
+    }
+    memset(&index_desc, 0, sizeof(index_desc));
+    index_desc.abi_version = RIN_GPU_ABI_VERSION;
+    index_desc.struct_size = sizeof(index_desc);
+    index_desc.size_bytes = 1u;
+    index_desc.usage = RIN_GPU_BUFFER_INDEX | RIN_GPU_BUFFER_COPY_DESTINATION;
+    index_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    CHECK(rindx_d3d11_create_buffer(&device, &index_desc, &index_buffer) ==
+          RIN_GPU_OK);
+    {
+        const uint8_t index = 0u;
+        CHECK(rindx_d3d11_upload_buffer(&device, index_buffer, 0u, &index,
+                                        sizeof(index)) == RIN_GPU_OK);
+    }
     memset(&transition, 0, sizeof(transition));
     transition.abi_version = RIN_GPU_ABI_VERSION;
     transition.struct_size = sizeof(transition);
@@ -233,9 +279,15 @@ int main(void)
     draw.struct_size = sizeof(draw);
     draw.pipeline = pipeline;
     draw.color_target = image;
+    draw.index_buffer = index_buffer;
+    draw.index_format = RIN_GPU_INDEX_UINT8;
+    draw.index_count = 1u;
+    draw.instance_count = 2u;
     draw.vertex_count = 1u;
-    draw.instance_count = 1u;
-    CHECK(rindx_d3d11_draw(&context, &draw) == RIN_GPU_OK);
+    draw.binding_count = 1u;
+    draw.vertex_buffers[0].binding = 0u;
+    draw.vertex_buffers[0].buffer = vertex_buffer;
+    CHECK(rindx_d3d11_draw_indexed_instanced(&context, &draw) == RIN_GPU_OK);
     CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(&context, image,
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET,
@@ -258,6 +310,8 @@ int main(void)
     CHECK(rindx_d3d11_destroy_object(&device, pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, fragment_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, vertex_shader) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, vertex_buffer) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, index_buffer) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_device(&device) == RIN_GPU_OK);
     return 0;
