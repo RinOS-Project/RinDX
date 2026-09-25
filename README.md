@@ -20,6 +20,12 @@ UpdateSubresource, GenerateMips, and full Windows ABI compatibility remain
 fail-closed boundaries. The host runtime tests cover transfer and clear
 readback in addition to draw/dispatch.
 
+D3D11 additionally exposes bounded buffer/Texture2D UpdateSubresource and
+GenerateMips. GenerateMips requires a fully upload-ready 2D mip chain and
+lowers each adjacent level through RinGPU linear blit with explicit per-mip
+state transitions; unsupported formats, dimensions, and incomplete chains are
+rejected rather than synthesized.
+
 Build:
 
 ```sh
