@@ -243,6 +243,14 @@ int rindx_d3d11_end_render_pass(RinDxD3d11Context* context);
  * ResizeBuffers translation remains a separate COM boundary. */
 int rindx_d3d11_present(RinDxD3d11Context* context, RinGpuHandle image,
                         uint32_t display_id);
+/* Host presentation bridge with an explicit ordering dependency: the RinGPU
+ * command-list fence is waited before the existing RinDX presentation owner
+ * receives the logical swapchain submit. */
+int rindx_d3d11_present_to_swapchain(
+    RinDxD3d11Context* context, RinGpuDxgiSwapchainRuntime* swapchain,
+    RinGpuHandle image, const RinGpuPresentationSubmitV1* submit,
+    uint64_t timeout_ns, uint64_t* gpu_fence_value_out,
+    uint64_t* presentation_fence_value_out);
 int rindx_d3d11_close_and_submit(RinDxD3d11Context* context,
                                 uint64_t* fence_value_out);
 int rindx_d3d11_wait(RinDxD3d11Device* device, uint64_t fence_value,

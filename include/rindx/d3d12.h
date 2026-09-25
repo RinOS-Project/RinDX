@@ -228,6 +228,14 @@ int rindx_d3d12_end_render_pass(RinDxD3d12CommandList* list);
  * ResizeBuffers translation remains a separate COM boundary. */
 int rindx_d3d12_present(RinDxD3d12CommandList* list, RinGpuHandle image,
                         uint32_t display_id);
+/* Host presentation bridge with an explicit ordering dependency: the RinGPU
+ * command-list fence is waited before the existing RinDX presentation owner
+ * receives the logical swapchain submit. */
+int rindx_d3d12_present_to_swapchain(
+    RinDxD3d12CommandList* list, RinGpuDxgiSwapchainRuntime* swapchain,
+    RinGpuHandle image, const RinGpuPresentationSubmitV1* submit,
+    uint64_t timeout_ns, uint64_t* gpu_fence_value_out,
+    uint64_t* presentation_fence_value_out);
 int rindx_d3d12_execute_command_lists(RinDxD3d12Device* device,
                                       RinDxD3d12CommandList* list,
                                       uint64_t* fence_value_out);

@@ -792,6 +792,36 @@ int rindx_d3d12_present(RinDxD3d12CommandList* list, RinGpuHandle image,
                                           list->command_list, &present);
 }
 
+int rindx_d3d12_present_to_swapchain(
+    RinDxD3d12CommandList* list, RinGpuDxgiSwapchainRuntime* swapchain,
+    RinGpuHandle image, const RinGpuPresentationSubmitV1* submit,
+    uint64_t timeout_ns, uint64_t* gpu_fence_value_out,
+    uint64_t* presentation_fence_value_out)
+{
+    uint64_t gpu_fence = 0u;
+    int result;
+    int presentation_result;
+    if (gpu_fence_value_out) *gpu_fence_value_out = 0u;
+    if (presentation_fence_value_out) *presentation_fence_value_out = 0u;
+    if (!list_valid(list) || !swapchain || image == 0u || !submit ||
+        submit->struct_size < sizeof(*submit) ||
+        submit->version != RIN_GPU_PRESENTATION_VERSION ||
+        submit->display_id == UINT32_MAX)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    result = rindx_d3d12_present(list, image, submit->display_id);
+    if (result != RIN_GPU_OK) return result;
+    result = rindx_d3d12_execute_command_lists(list->device, list, &gpu_fence);
+    if (result != RIN_GPU_OK) return result;
+    if (gpu_fence_value_out) *gpu_fence_value_out = gpu_fence;
+    result = rindx_d3d12_wait(list->device, gpu_fence, timeout_ns);
+    if (result != RIN_GPU_OK) return result;
+    presentation_result = rin_gpu_dxgi_swapchain_present(
+        swapchain, submit, presentation_fence_value_out);
+    if (presentation_result != RIN_GPU_DXGI_SWAPCHAIN_OK)
+        return RIN_GPU_ERROR_BACKEND;
+    return RIN_GPU_OK;
+}
+
 int rindx_d3d12_execute_command_lists(RinDxD3d12Device* device,
                                       RinDxD3d12CommandList* list,
                                       uint64_t* fence_value_out)

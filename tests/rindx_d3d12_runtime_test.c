@@ -278,6 +278,9 @@ int main(void)
     RinGpuPresentationBackendV1 swapchain_backend;
     RinGpuPresentationOutputV1 swapchain_output;
     RinGpuDxgiSwapchainStatusV1 swapchain_status;
+    RinGpuPresentationAcquireV1 swapchain_acquire;
+    RinGpuPresentationSubmitV1 swapchain_submit_desc;
+    RinGpuPresentationCompletionV1 swapchain_completion;
     ShaderBlob vertex;
     ShaderBlob fragment;
     ShaderBlob storage_fragment;
@@ -354,6 +357,7 @@ int main(void)
         64u, 32u, 16u, 255u, 64u, 32u, 16u, 255u};
     static const uint8_t zero_pixels[16u] = {0};
     uint64_t fence_value = 0u;
+    uint64_t presentation_fence_value = 0u;
     PresentCapture present_capture;
     const uint32_t feature_level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
 
@@ -403,8 +407,21 @@ int main(void)
                                             &swapchain_status) ==
           RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(swapchain_status.buffer_count == 2u);
-    CHECK(rin_gpu_dxgi_swapchain_runtime_shutdown(&swapchain_runtime) ==
+    CHECK(rin_gpu_dxgi_swapchain_acquire(&swapchain_runtime,
+                                        &swapchain_acquire) ==
           RIN_GPU_DXGI_SWAPCHAIN_OK);
+    memset(&swapchain_submit_desc, 0, sizeof(swapchain_submit_desc));
+    swapchain_submit_desc.struct_size = sizeof(swapchain_submit_desc);
+    swapchain_submit_desc.version = RIN_GPU_PRESENTATION_VERSION;
+    swapchain_submit_desc.display_id = swapchain_acquire.display_id;
+    swapchain_submit_desc.mode = swapchain_acquire.mode;
+    swapchain_submit_desc.image_token = swapchain_acquire.image_token;
+    swapchain_submit_desc.output_generation =
+        swapchain_acquire.output_generation;
+    swapchain_submit_desc.device_generation =
+        swapchain_acquire.device_generation;
+    swapchain_submit_desc.frame_id = swapchain_acquire.frame_id;
+    swapchain_submit_desc.flags = RIN_GPU_PRESENTATION_SUBMIT_FULL_DAMAGE;
     CHECK(rindx_d3d12_destroy_device(&swapchain_device) == RIN_GPU_OK);
     memset(&adapter_info, 0, sizeof(adapter_info));
     adapter_info.abi_version = RIN_GPU_ABI_VERSION;
@@ -899,13 +916,29 @@ int main(void)
     CHECK(rindx_d3d12_transition_image(
               &list, present_target, RIN_GPU_IMAGE_STATE_COLOR_TARGET,
               RIN_GPU_IMAGE_STATE_PRESENT) == RIN_GPU_OK);
-    CHECK(rindx_d3d12_present(&list, present_target,
-                              RIN_GPU_PRIMARY_DISPLAY) == RIN_GPU_OK);
-    CHECK(rindx_d3d12_execute_command_lists(&device, &list, &fence_value) ==
-          RIN_GPU_OK);
-    CHECK(rindx_d3d12_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
-          RIN_GPU_OK);
+    CHECK(rindx_d3d12_present_to_swapchain(
+              &list, &swapchain_runtime, present_target,
+              &swapchain_submit_desc, RIN_GPU_TIMEOUT_INFINITE, &fence_value,
+              &presentation_fence_value) == RIN_GPU_OK);
+    CHECK(fence_value != 0u && presentation_fence_value != 0u);
     CHECK(present_capture.calls == 1u);
+    memset(&swapchain_completion, 0, sizeof(swapchain_completion));
+    swapchain_completion.struct_size = sizeof(swapchain_completion);
+    swapchain_completion.version = RIN_GPU_PRESENTATION_VERSION;
+    swapchain_completion.display_id = swapchain_submit_desc.display_id;
+    swapchain_completion.status = RIN_GPU_PRESENTATION_COMPLETION_SUCCESS;
+    swapchain_completion.image_token = swapchain_submit_desc.image_token;
+    swapchain_completion.output_generation =
+        swapchain_submit_desc.output_generation;
+    swapchain_completion.device_generation =
+        swapchain_submit_desc.device_generation;
+    swapchain_completion.frame_id = swapchain_submit_desc.frame_id;
+    swapchain_completion.fence_value = presentation_fence_value;
+    CHECK(rin_gpu_dxgi_swapchain_complete(&swapchain_runtime,
+                                          &swapchain_completion) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
+    CHECK(rin_gpu_dxgi_swapchain_runtime_shutdown(&swapchain_runtime) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(rindx_d3d12_reset_command_list(&list) == RIN_GPU_OK);
     memset(&readback, 0, sizeof(readback));
     readback.abi_version = RIN_GPU_ABI_VERSION;
