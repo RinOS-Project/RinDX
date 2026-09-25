@@ -998,6 +998,16 @@ int main(void)
               RIN_GPU_IMAGE_STATE_PRESENT) == RIN_GPU_OK);
     CHECK(rin_gpu_dxgi_swapchain_bind_buffer(
               &swapchain_runtime, swapchain_submit_desc.image_token,
+              vertex_buffer) == RIN_GPU_DXGI_SWAPCHAIN_OK);
+    fence_value = 0u;
+    presentation_fence_value = 0u;
+    CHECK(rindx_d3d11_present_to_swapchain(
+              &context, &swapchain_runtime, present_target,
+              &swapchain_submit_desc, RIN_GPU_TIMEOUT_INFINITE, &fence_value,
+              &presentation_fence_value) == RIN_GPU_ERROR_INVALID_ARGUMENT);
+    CHECK(fence_value == 0u && presentation_fence_value == 0u);
+    CHECK(rin_gpu_dxgi_swapchain_bind_buffer(
+              &swapchain_runtime, swapchain_submit_desc.image_token,
               present_target) == RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(rindx_d3d11_present_to_swapchain(
               &context, &swapchain_runtime, present_target,
