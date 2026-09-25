@@ -32,6 +32,12 @@ rejected rather than synthesized. D3D11 depth/stencil clear is limited to the
 validated D32_FLOAT_S8_UINT software path and requires explicit copy-state
 transitions.
 
+D3D11 also exposes a typed graphics bind-group owner. Its storage-image path is
+exercised by a real RSH1 fragment shader and R8 storage image; binding kind,
+access, resource usage, lifetime, and subresource validation remain in RinGPU,
+and the draw writes/readbacks the storage image. Invalid or unsupported view
+forms remain errors rather than fabricated native COM views.
+
 Build:
 
 ```sh

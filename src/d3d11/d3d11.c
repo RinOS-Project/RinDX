@@ -203,6 +203,16 @@ int rindx_d3d11_create_sampler(
                                          sampler_out);
 }
 
+int rindx_d3d11_create_graphics_bind_group(
+    RinDxD3d11Device* device, RinGpuHandle pipeline,
+    const RinGpuGraphicsBindingV1* bindings, uint32_t binding_count,
+    RinGpuHandle* bind_group_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_create_graphics_bind_group_typed(
+        device->runtime, pipeline, bindings, binding_count, bind_group_out);
+}
+
 int rindx_d3d11_create_compute_bind_group(
     RinDxD3d11Device* device, RinGpuHandle pipeline,
     const RinGpuBufferBindingV1* bindings, uint32_t binding_count,

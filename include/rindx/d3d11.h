@@ -92,6 +92,10 @@ int rindx_d3d11_create_compute_pipeline(
 int rindx_d3d11_create_sampler(
     RinDxD3d11Device* device, const RinGpuSamplerDescV1* descriptor,
     RinGpuHandle* sampler_out);
+int rindx_d3d11_create_graphics_bind_group(
+    RinDxD3d11Device* device, RinGpuHandle pipeline,
+    const RinGpuGraphicsBindingV1* bindings, uint32_t binding_count,
+    RinGpuHandle* bind_group_out);
 int rindx_d3d11_create_compute_bind_group(
     RinDxD3d11Device* device, RinGpuHandle pipeline,
     const RinGpuBufferBindingV1* bindings, uint32_t binding_count,
