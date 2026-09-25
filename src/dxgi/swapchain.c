@@ -297,6 +297,24 @@ int rin_gpu_dxgi_swapchain_bind_buffer(
     return RIN_GPU_DXGI_SWAPCHAIN_OK;
 }
 
+int rin_gpu_dxgi_swapchain_unbind_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint64_t image_token,
+    uint64_t resource_handle) {
+    DxgiSwapchainState* state = swapchain_state(runtime);
+    int index;
+    if (!swapchain_ready(state) || image_token == 0u ||
+        resource_handle == 0u)
+        return RIN_GPU_DXGI_SWAPCHAIN_INVALID_ARGUMENT;
+    if (state->device_lost) return RIN_GPU_DXGI_SWAPCHAIN_DEVICE_LOST;
+    if (state->output_changed) return RIN_GPU_DXGI_SWAPCHAIN_OUT_OF_DATE;
+    index = image_index(state, image_token);
+    if (index < 0) return RIN_GPU_DXGI_SWAPCHAIN_OUT_OF_DATE;
+    if (state->resource_handles[index] != resource_handle)
+        return RIN_GPU_DXGI_SWAPCHAIN_INVALID_ARGUMENT;
+    state->resource_handles[index] = 0u;
+    return RIN_GPU_DXGI_SWAPCHAIN_OK;
+}
+
 int rin_gpu_dxgi_swapchain_present(
     RinGpuDxgiSwapchainRuntime* runtime,
     const RinGpuPresentationSubmitV1* submit, uint64_t* fence_value_out) {

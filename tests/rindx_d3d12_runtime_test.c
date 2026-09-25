@@ -959,6 +959,16 @@ int main(void)
     CHECK(rin_gpu_dxgi_swapchain_complete(&swapchain_runtime,
                                           &swapchain_completion) ==
           RIN_GPU_DXGI_SWAPCHAIN_OK);
+    CHECK(rin_gpu_dxgi_swapchain_unbind_buffer(
+              &swapchain_runtime, swapchain_submit_desc.image_token,
+              indirect_buffer) == RIN_GPU_DXGI_SWAPCHAIN_INVALID_ARGUMENT);
+    CHECK(rin_gpu_dxgi_swapchain_unbind_buffer(
+              &swapchain_runtime, swapchain_submit_desc.image_token,
+              present_target) == RIN_GPU_DXGI_SWAPCHAIN_OK);
+    swapchain_output.output_generation = 2u;
+    CHECK(rin_gpu_dxgi_swapchain_resize_buffers(
+              &swapchain_runtime, &swapchain_output, 2u) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(rin_gpu_dxgi_swapchain_runtime_shutdown(&swapchain_runtime) ==
           RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(rindx_d3d12_reset_command_list(&list) == RIN_GPU_OK);

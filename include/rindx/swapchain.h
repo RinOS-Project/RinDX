@@ -106,6 +106,9 @@ int rin_gpu_dxgi_swapchain_get_buffer(
 int rin_gpu_dxgi_swapchain_bind_buffer(
     RinGpuDxgiSwapchainRuntime* runtime, uint64_t image_token,
     uint64_t resource_handle);
+int rin_gpu_dxgi_swapchain_unbind_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint64_t image_token,
+    uint64_t resource_handle);
 int rin_gpu_dxgi_swapchain_present(
     RinGpuDxgiSwapchainRuntime* runtime,
     const RinGpuPresentationSubmitV1* submit, uint64_t* fence_value_out);
