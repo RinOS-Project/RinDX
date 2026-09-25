@@ -227,6 +227,22 @@ int rindx_d3d11_upload_image(RinDxD3d11Device* device, RinGpuHandle image,
                                        source_size);
 }
 
+int rindx_d3d11_update_subresource_buffer(
+    RinDxD3d11Device* device, RinGpuHandle buffer, uint64_t offset,
+    const void* source, uint64_t size_bytes)
+{
+    return rindx_d3d11_upload_buffer(device, buffer, offset, source,
+                                     size_bytes);
+}
+
+int rindx_d3d11_update_subresource_texture2d(
+    RinDxD3d11Device* device, RinGpuHandle image,
+    const RinGpuImageUploadV1* upload, const void* source,
+    uint64_t source_size)
+{
+    return rindx_d3d11_upload_image(device, image, upload, source, source_size);
+}
+
 static int d3d11_full_copy_region(const RinGpuImageInfoV1* destination,
                                   const RinGpuImageInfoV1* source,
                                   RinGpuImageCopyRegionV1* region)
@@ -352,6 +368,80 @@ int rindx_d3d11_clear_depth_stencil_view(
     clear.stencil = stencil;
     return ringpu_runtime_command_clear_image(
         context->device->runtime, context->command_list, target, &clear);
+}
+
+int rindx_d3d11_generate_mips(RinDxD3d11Context* context, RinGpuHandle image)
+{
+    RinGpuImageInfoV1 info;
+    RinGpuImageTransitionV1 transition;
+    RinGpuImageBlitV1 blit;
+    uint32_t mip;
+    int result;
+    if (!context_valid(context) || image == 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&info, 0, sizeof(info));
+    result = ringpu_runtime_get_image_info(context->device->runtime, image,
+                                           &info);
+    if (result != RIN_GPU_OK) return result;
+    if (info.descriptor.dimension != RIN_GPU_IMAGE_DIMENSION_2D ||
+        info.descriptor.mip_levels < 2u || info.descriptor.sample_count != 1u ||
+        (info.descriptor.usage & (RIN_GPU_IMAGE_COPY_SOURCE |
+                                  RIN_GPU_IMAGE_COPY_DESTINATION)) !=
+            (RIN_GPU_IMAGE_COPY_SOURCE | RIN_GPU_IMAGE_COPY_DESTINATION) ||
+        info.descriptor.width == 0u || info.descriptor.height == 0u)
+        return RIN_GPU_ERROR_UNSUPPORTED;
+    memset(&transition, 0, sizeof(transition));
+    transition.abi_version = RIN_GPU_ABI_VERSION;
+    transition.struct_size = sizeof(transition);
+    transition.base_mip_level = 0u;
+    transition.mip_level_count = 1u;
+    transition.base_array_layer = 0u;
+    transition.array_layer_count = 1u;
+    transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+    transition.after_state = RIN_GPU_IMAGE_STATE_COPY_SOURCE;
+    result = ringpu_runtime_command_transition_image(
+        context->device->runtime, context->command_list, image, &transition);
+    if (result != RIN_GPU_OK) return result;
+    transition.base_mip_level = 1u;
+    transition.mip_level_count = info.descriptor.mip_levels - 1u;
+    transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+    transition.after_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+    /* A transition with equal states is not a command. The remaining mips
+     * are upload-ready COPY_DESTINATION subresources by contract. */
+    memset(&blit, 0, sizeof(blit));
+    blit.abi_version = RIN_GPU_ABI_VERSION;
+    blit.struct_size = sizeof(blit);
+    blit.source_array_layer = 0u;
+    blit.destination_array_layer = 0u;
+    blit.filter = RIN_GPU_IMAGE_BLIT_LINEAR;
+    for (mip = 1u; mip < info.descriptor.mip_levels; ++mip) {
+        uint32_t source_width = info.descriptor.width >> (mip - 1u);
+        uint32_t source_height = info.descriptor.height >> (mip - 1u);
+        uint32_t destination_width = info.descriptor.width >> mip;
+        uint32_t destination_height = info.descriptor.height >> mip;
+        if (source_width == 0u || source_height == 0u ||
+            destination_width == 0u || destination_height == 0u)
+            return RIN_GPU_ERROR_BOUNDS;
+        blit.source_mip_level = mip - 1u;
+        blit.source_width = source_width;
+        blit.source_height = source_height;
+        blit.destination_mip_level = mip;
+        blit.destination_width = destination_width;
+        blit.destination_height = destination_height;
+        result = ringpu_runtime_command_blit_image(
+            context->device->runtime, context->command_list, image, image,
+            &blit);
+        if (result != RIN_GPU_OK) return result;
+        transition.base_mip_level = mip;
+        transition.mip_level_count = 1u;
+        transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
+        transition.after_state = RIN_GPU_IMAGE_STATE_COPY_SOURCE;
+        result = ringpu_runtime_command_transition_image(
+            context->device->runtime, context->command_list, image,
+            &transition);
+        if (result != RIN_GPU_OK) return result;
+    }
+    return RIN_GPU_OK;
 }
 
 int rindx_d3d11_transition_image(

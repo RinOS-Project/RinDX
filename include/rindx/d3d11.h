@@ -74,6 +74,13 @@ int rindx_d3d11_upload_buffer(RinDxD3d11Device* device, RinGpuHandle buffer,
 int rindx_d3d11_upload_image(RinDxD3d11Device* device, RinGpuHandle image,
                              const RinGpuImageUploadV1* upload,
                              const void* source, uint64_t source_size);
+int rindx_d3d11_update_subresource_buffer(
+    RinDxD3d11Device* device, RinGpuHandle buffer, uint64_t offset,
+    const void* source, uint64_t size_bytes);
+int rindx_d3d11_update_subresource_texture2d(
+    RinDxD3d11Device* device, RinGpuHandle image,
+    const RinGpuImageUploadV1* upload, const void* source,
+    uint64_t source_size);
 /* Bounded software resource-transfer owner. Native D3D11 COM/view
  * translation remains outside this ABI and is rejected until validated. */
 int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,
@@ -94,6 +101,7 @@ int rindx_d3d11_clear_render_target_view(
 int rindx_d3d11_clear_depth_stencil_view(
     RinDxD3d11Context* context, RinGpuHandle target, uint32_t clear_flags,
     float depth, uint32_t stencil);
+int rindx_d3d11_generate_mips(RinDxD3d11Context* context, RinGpuHandle image);
 
 int rindx_d3d11_transition_image(
     RinDxD3d11Context* context, RinGpuHandle image,
