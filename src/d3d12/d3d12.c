@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #include <rindx/d3d12.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 #define RIN_DX_D3D12_STATE_READY 1u
@@ -96,7 +97,8 @@ int rindx_d3d12_create_device(
 int rindx_d3d12_destroy_device(RinDxD3d12Device* device)
 {
     int result;
-    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    if (!device_valid(device) || device->mapped_buffer != 0u)
+        return RIN_GPU_ERROR_STATE;
     result = ringpu_runtime_destroy_object(device->runtime, device->fence);
     if (result != RIN_GPU_OK) return result;
     result = ringpu_runtime_destroy_object(device->runtime, device->queue);
@@ -313,6 +315,98 @@ int rindx_d3d12_readback_buffer(
     return ringpu_runtime_readback_buffer(device->runtime, buffer,
                                           source_offset, destination,
                                           size_bytes);
+}
+
+static int d3d12_map_type_valid(uint32_t map_type)
+{
+    return map_type == RIN_DX_D3D12_MAP_READ ||
+        map_type == RIN_DX_D3D12_MAP_WRITE ||
+        map_type == RIN_DX_D3D12_MAP_READ_WRITE;
+}
+
+int rindx_d3d12_map_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
+                           uint32_t map_type, uint32_t flags,
+                           RinDxD3d12MappedResource* mapped_out)
+{
+    RinGpuBufferInfoV1 info;
+    void* data;
+    int result;
+    int reads;
+    int writes;
+
+    if (!device_valid(device) || buffer == 0u ||
+        !d3d12_map_type_valid(map_type) || flags != 0u || !mapped_out ||
+        mapped_out->struct_size != sizeof(*mapped_out) ||
+        mapped_out->version != RIN_DX_D3D12_VERSION ||
+        device->mapped_buffer != 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&info, 0, sizeof(info));
+    result = ringpu_runtime_get_buffer_info(device->runtime, buffer, &info);
+    if (result != RIN_GPU_OK) return result;
+    if ((info.flags & RIN_GPU_BUFFER_CPU_VISIBLE) == 0u)
+        return RIN_GPU_ERROR_STATE;
+    reads = map_type == RIN_DX_D3D12_MAP_READ ||
+        map_type == RIN_DX_D3D12_MAP_READ_WRITE;
+    writes = map_type == RIN_DX_D3D12_MAP_WRITE ||
+        map_type == RIN_DX_D3D12_MAP_READ_WRITE;
+    if ((reads && (info.usage & RIN_GPU_BUFFER_COPY_SOURCE) == 0u) ||
+        (writes && (info.usage & RIN_GPU_BUFFER_COPY_DESTINATION) == 0u))
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (info.size_bytes > (uint64_t)SIZE_MAX)
+        return RIN_GPU_ERROR_LIMIT;
+    data = calloc(1u, (size_t)info.size_bytes);
+    if (!data) return RIN_GPU_ERROR_NO_MEMORY;
+    if (reads) {
+        result = ringpu_runtime_readback_buffer(device->runtime, buffer, 0u,
+                                                data, info.size_bytes);
+        if (result != RIN_GPU_OK) {
+            free(data);
+            return result;
+        }
+    }
+    device->mapped_buffer = buffer;
+    device->mapped_data = data;
+    device->mapped_size = info.size_bytes;
+    device->mapped_type = map_type;
+    device->mapped_flags = flags;
+    mapped_out->buffer = buffer;
+    mapped_out->data = data;
+    mapped_out->size_bytes = info.size_bytes;
+    mapped_out->row_pitch_bytes = info.size_bytes;
+    mapped_out->depth_pitch_bytes = info.size_bytes;
+    mapped_out->map_type = map_type;
+    mapped_out->flags = flags;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d12_unmap_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
+                             RinDxD3d12MappedResource* mapped)
+{
+    int result = RIN_GPU_OK;
+
+    if (!device_valid(device) || buffer == 0u || !mapped ||
+        mapped->struct_size != sizeof(*mapped) ||
+        mapped->version != RIN_DX_D3D12_VERSION ||
+        device->mapped_buffer != buffer || mapped->buffer != buffer ||
+        mapped->data != device->mapped_data ||
+        mapped->size_bytes != device->mapped_size ||
+        mapped->map_type != device->mapped_type ||
+        mapped->flags != device->mapped_flags)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (device->mapped_type != RIN_DX_D3D12_MAP_READ) {
+        result = ringpu_runtime_upload_buffer(
+            device->runtime, buffer, 0u, device->mapped_data,
+            device->mapped_size);
+        if (result != RIN_GPU_OK) return result;
+    }
+    free(device->mapped_data);
+    device->mapped_buffer = 0u;
+    device->mapped_data = NULL;
+    device->mapped_size = 0u;
+    device->mapped_type = 0u;
+    device->mapped_flags = 0u;
+    memset(mapped, 0, sizeof(*mapped));
+    return RIN_GPU_OK;
 }
 
 int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,

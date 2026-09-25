@@ -8,6 +8,12 @@
 
 #define RIN_DX_D3D12_VERSION 1u
 #define RIN_DX_D3D12_FEATURE_LEVEL_12_0 UINT32_C(0xc000)
+#define RIN_DX_D3D12_MAP_READ 1u
+#define RIN_DX_D3D12_MAP_WRITE 2u
+#define RIN_DX_D3D12_MAP_READ_WRITE 3u
+#define RIN_DX_D3D12_MAP_KNOWN \
+    (RIN_DX_D3D12_MAP_READ | RIN_DX_D3D12_MAP_WRITE | \
+     RIN_DX_D3D12_MAP_READ_WRITE)
 
 typedef struct RinDxD3d12Device {
     uint32_t struct_size;
@@ -18,7 +24,24 @@ typedef struct RinDxD3d12Device {
     uint64_t submission_value;
     uint32_t feature_level;
     uint32_t state;
+    RinGpuHandle mapped_buffer;
+    void* mapped_data;
+    uint64_t mapped_size;
+    uint32_t mapped_type;
+    uint32_t mapped_flags;
 } RinDxD3d12Device;
+
+typedef struct RinDxD3d12MappedResource {
+    uint32_t struct_size;
+    uint32_t version;
+    RinGpuHandle buffer;
+    void* data;
+    uint64_t size_bytes;
+    uint64_t row_pitch_bytes;
+    uint64_t depth_pitch_bytes;
+    uint32_t map_type;
+    uint32_t flags;
+} RinDxD3d12MappedResource;
 
 typedef struct RinDxD3d12CommandAllocator {
     uint32_t struct_size;
@@ -97,6 +120,11 @@ int rindx_d3d12_upload_image(RinDxD3d12Device* device, RinGpuHandle image,
 int rindx_d3d12_readback_buffer(
     RinDxD3d12Device* device, RinGpuHandle buffer, uint64_t source_offset,
     void* destination, uint64_t size_bytes);
+int rindx_d3d12_map_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
+                           uint32_t map_type, uint32_t flags,
+                           RinDxD3d12MappedResource* mapped_out);
+int rindx_d3d12_unmap_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
+                             RinDxD3d12MappedResource* mapped);
 /* Bounded software copy/resolve/clear owner. Explicit RinGPU regions are the
  * validated ABI; arbitrary native D3D12 command-list bytecode is rejected. */
 int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,
@@ -158,15 +186,19 @@ int rindx_d3d12_readback_image(
     uint64_t destination_size);
 
 #if defined(__cplusplus)
-static_assert(sizeof(RinDxD3d12Device) == 48u,
+static_assert(sizeof(RinDxD3d12Device) == 80u,
               "RinDX D3D12 device ABI drift");
+static_assert(sizeof(RinDxD3d12MappedResource) == 56u,
+              "RinDX D3D12 mapped-resource ABI drift");
 static_assert(sizeof(RinDxD3d12CommandAllocator) == 24u,
               "RinDX D3D12 allocator ABI drift");
 static_assert(sizeof(RinDxD3d12CommandList) == 56u,
               "RinDX D3D12 command list ABI drift");
 #else
-_Static_assert(sizeof(RinDxD3d12Device) == 48u,
+_Static_assert(sizeof(RinDxD3d12Device) == 80u,
                "RinDX D3D12 device ABI drift");
+_Static_assert(sizeof(RinDxD3d12MappedResource) == 56u,
+               "RinDX D3D12 mapped-resource ABI drift");
 _Static_assert(sizeof(RinDxD3d12CommandAllocator) == 24u,
                "RinDX D3D12 allocator ABI drift");
 _Static_assert(sizeof(RinDxD3d12CommandList) == 56u,
