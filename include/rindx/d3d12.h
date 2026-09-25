@@ -202,6 +202,11 @@ int rindx_d3d12_dispatch(RinDxD3d12CommandList* list,
 int rindx_d3d12_execute_indirect_dispatch(
     RinDxD3d12CommandList* list, const RinGpuDispatchIndirectV1* dispatch);
 int rindx_d3d12_end_render_pass(RinDxD3d12CommandList* list);
+/* Bounded software presentation owner. The image must satisfy RinGPU's
+ * present usage/state/display contract; native DXGI swap-chain Present and
+ * ResizeBuffers translation remains a separate COM boundary. */
+int rindx_d3d12_present(RinDxD3d12CommandList* list, RinGpuHandle image,
+                        uint32_t display_id);
 int rindx_d3d12_execute_command_lists(RinDxD3d12Device* device,
                                       RinDxD3d12CommandList* list,
                                       uint64_t* fence_value_out);

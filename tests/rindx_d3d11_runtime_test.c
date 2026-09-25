@@ -14,6 +14,10 @@ typedef struct ShaderBlob {
     RinShaderInstructionV1 instructions[17];
 } ShaderBlob;
 
+typedef struct PresentCapture {
+    uint32_t calls;
+} PresentCapture;
+
 static void instruction(RinShaderInstructionV1* out, uint16_t opcode,
                         uint16_t destination, uint16_t source0,
                         uint32_t immediate)
@@ -187,8 +191,16 @@ static void make_compute_shader(ShaderBlob* shader)
 
 static int present(void* context, const RinGpuSoftwarePresentedImageV1* image)
 {
-    (void)context;
-    return image && image->pixels ? RIN_GPU_OK : RIN_GPU_ERROR_INVALID_ARGUMENT;
+    PresentCapture* capture = (PresentCapture*)context;
+    if (!capture || !image || image->struct_size != sizeof(*image) ||
+        image->version != RIN_GPU_SOFTWARE_BACKEND_VERSION ||
+        !image->pixels || image->format != RIN_GPU_FORMAT_RGBA8_UNORM ||
+        image->width != 2u || image->height != 2u ||
+        image->display_id != RIN_GPU_PRIMARY_DISPLAY ||
+        image->row_pitch_bytes < 8u || image->size_bytes < 16u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    capture->calls++;
+    return RIN_GPU_OK;
 }
 
 static int acquire(void* context, const RinGpuImageDescV1* descriptor,
@@ -317,6 +329,7 @@ int main(void)
     RinGpuHandle transfer_destination = 0u;
     RinGpuHandle subresource_destination = 0u;
     RinGpuHandle clear_target = 0u;
+    RinGpuHandle present_target = 0u;
     RinGpuHandle mip_image = 0u;
     RinGpuHandle transfer_buffer_source = 0u;
     RinGpuHandle transfer_buffer_destination = 0u;
@@ -343,10 +356,13 @@ int main(void)
         29u, 28u, 27u, 255u, 39u, 38u, 37u, 255u};
     static const uint8_t zero_pixels[16u] = {0};
     uint64_t fence_value = 0u;
+    PresentCapture present_capture;
     const uint32_t feature_level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
     int create_result;
 
     make_surface(&surface);
+    memset(&present_capture, 0, sizeof(present_capture));
+    surface.present_context = &present_capture;
     create_result = rindx_d3d11_create_device(&surface, &feature_level, 1u,
                                               &device);
     if (create_result != RIN_GPU_OK)
@@ -475,6 +491,14 @@ int main(void)
     image_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
     CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
           RIN_GPU_OK);
+    {
+        RinGpuImageDescV1 present_desc = image_desc;
+        present_desc.usage = RIN_GPU_IMAGE_PRESENT |
+                             RIN_GPU_IMAGE_COLOR_TARGET;
+        present_desc.flags = 0u;
+        CHECK(rindx_d3d11_create_texture2d(&device, &present_desc,
+                                           &present_target) == RIN_GPU_OK);
+    }
     texture1d_desc = image_desc;
     texture1d_desc.dimension = RIN_GPU_IMAGE_DIMENSION_1D;
     texture1d_desc.height = 1u;
@@ -846,9 +870,22 @@ int main(void)
     CHECK(rindx_d3d11_transition_image(
               &context, sample_target, RIN_GPU_IMAGE_STATE_COLOR_TARGET,
               RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &context, present_target, RIN_GPU_IMAGE_STATE_UNDEFINED,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_render_pass(&context, present_target, 0u, 1u,
+                                        0.25f, 0.5f, 0.75f, 1.0f, 1.0f) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &context, present_target, RIN_GPU_IMAGE_STATE_COLOR_TARGET,
+              RIN_GPU_IMAGE_STATE_PRESENT) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_present(&context, present_target,
+                              RIN_GPU_PRIMARY_DISPLAY) == RIN_GPU_OK);
     CHECK(rindx_d3d11_close_and_submit(&context, &fence_value) == RIN_GPU_OK);
     CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
           RIN_GPU_OK);
+    CHECK(present_capture.calls == 1u);
     memset(&texture3d_readback, 0, sizeof(texture3d_readback));
     texture3d_readback.abi_version = RIN_GPU_ABI_VERSION;
     texture3d_readback.struct_size = sizeof(texture3d_readback);
@@ -1131,6 +1168,7 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, depth_image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, present_target) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, texture1d) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, texture3d) == RIN_GPU_OK);
     CHECK(rindx_d3d11_get_device_removed_reason(&device) == RIN_GPU_OK);

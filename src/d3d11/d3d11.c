@@ -977,6 +977,22 @@ int rindx_d3d11_end_render_pass(RinDxD3d11Context* context)
     return RIN_GPU_OK;
 }
 
+int rindx_d3d11_present(RinDxD3d11Context* context, RinGpuHandle image,
+                        uint32_t display_id)
+{
+    RinGpuPresentV1 present;
+    if (!context_valid(context) || image == 0u ||
+        display_id == UINT32_MAX || context->render_pass_active != 0u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&present, 0, sizeof(present));
+    present.abi_version = RIN_GPU_ABI_VERSION;
+    present.struct_size = sizeof(present);
+    present.image = image;
+    present.display_id = display_id;
+    return ringpu_runtime_command_present(context->device->runtime,
+                                          context->command_list, &present);
+}
+
 int rindx_d3d11_close_and_submit(RinDxD3d11Context* context,
                                 uint64_t* fence_value_out)
 {

@@ -215,6 +215,11 @@ int rindx_d3d11_draw_indexed_instanced(
 int rindx_d3d11_dispatch(RinDxD3d11Context* context,
                          const RinGpuDispatchV1* dispatch);
 int rindx_d3d11_end_render_pass(RinDxD3d11Context* context);
+/* Bounded software presentation owner. The image must satisfy RinGPU's
+ * present usage/state/display contract; native DXGI swap-chain Present and
+ * ResizeBuffers translation remains a separate COM boundary. */
+int rindx_d3d11_present(RinDxD3d11Context* context, RinGpuHandle image,
+                        uint32_t display_id);
 int rindx_d3d11_close_and_submit(RinDxD3d11Context* context,
                                 uint64_t* fence_value_out);
 int rindx_d3d11_wait(RinDxD3d11Device* device, uint64_t fence_value,
