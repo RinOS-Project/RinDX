@@ -339,6 +339,7 @@ int main(void)
     RinGpuPresentationAcquireV1 swapchain_acquire;
     RinGpuPresentationSubmitV1 swapchain_submit_desc;
     RinGpuPresentationCompletionV1 swapchain_completion;
+    RinGpuDxgiSwapchainBufferV1 swapchain_buffer;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle sample_fragment_shader = 0u;
@@ -477,6 +478,14 @@ int main(void)
         swapchain_acquire.device_generation;
     swapchain_submit_desc.frame_id = swapchain_acquire.frame_id;
     swapchain_submit_desc.flags = RIN_GPU_PRESENTATION_SUBMIT_FULL_DAMAGE;
+    memset(&swapchain_buffer, 0, sizeof(swapchain_buffer));
+    swapchain_buffer.struct_size = sizeof(swapchain_buffer);
+    swapchain_buffer.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    CHECK(rin_gpu_dxgi_swapchain_get_buffer(&swapchain_runtime, 0u,
+                                            &swapchain_buffer) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
+    CHECK(swapchain_buffer.image_token == swapchain_submit_desc.image_token &&
+          swapchain_buffer.resource_handle == 0u);
     CHECK(rindx_d3d11_destroy_device(&swapchain_device) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_context(&device, &context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_set_multithread_protected(&context, 1u) == RIN_GPU_OK);
@@ -987,6 +996,9 @@ int main(void)
     CHECK(rindx_d3d11_transition_image(
               &context, present_target, RIN_GPU_IMAGE_STATE_COLOR_TARGET,
               RIN_GPU_IMAGE_STATE_PRESENT) == RIN_GPU_OK);
+    CHECK(rin_gpu_dxgi_swapchain_bind_buffer(
+              &swapchain_runtime, swapchain_submit_desc.image_token,
+              present_target) == RIN_GPU_DXGI_SWAPCHAIN_OK);
     CHECK(rindx_d3d11_present_to_swapchain(
               &context, &swapchain_runtime, present_target,
               &swapchain_submit_desc, RIN_GPU_TIMEOUT_INFINITE, &fence_value,

@@ -792,6 +792,42 @@ int rindx_d3d12_present(RinDxD3d12CommandList* list, RinGpuHandle image,
                                           list->command_list, &present);
 }
 
+static int d3d12_swapchain_image_matches(
+    RinDxD3d12CommandList* list, RinGpuDxgiSwapchainRuntime* swapchain,
+    RinGpuHandle image, const RinGpuPresentationSubmitV1* submit)
+{
+    RinGpuImageInfoV1 info;
+    for (uint32_t index = 0u; index < RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS;
+         ++index) {
+        RinGpuDxgiSwapchainBufferV1 buffer;
+        int result;
+        memset(&buffer, 0, sizeof(buffer));
+        buffer.struct_size = sizeof(buffer);
+        buffer.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+        result = rin_gpu_dxgi_swapchain_get_buffer(swapchain, index, &buffer);
+        if (result != RIN_GPU_DXGI_SWAPCHAIN_OK) break;
+        if (buffer.image_token != submit->image_token) continue;
+        if (buffer.resource_handle != image ||
+            buffer.display_id != submit->display_id)
+            return 0;
+        memset(&info, 0, sizeof(info));
+        info.abi_version = RIN_GPU_ABI_VERSION;
+        info.struct_size = sizeof(info);
+        if (ringpu_runtime_get_image_info(list->device->runtime, image,
+                                          &info) != RIN_GPU_OK)
+            return 0;
+        return (info.descriptor.usage & RIN_GPU_IMAGE_PRESENT) != 0u &&
+               info.descriptor.dimension == RIN_GPU_IMAGE_DIMENSION_2D &&
+               info.descriptor.array_layers == 1u &&
+               info.descriptor.mip_levels == 1u &&
+               info.descriptor.sample_count == 1u &&
+               info.descriptor.width == buffer.width &&
+               info.descriptor.height == buffer.height &&
+               info.descriptor.format == buffer.format;
+    }
+    return 0;
+}
+
 int rindx_d3d12_present_to_swapchain(
     RinDxD3d12CommandList* list, RinGpuDxgiSwapchainRuntime* swapchain,
     RinGpuHandle image, const RinGpuPresentationSubmitV1* submit,
@@ -807,6 +843,8 @@ int rindx_d3d12_present_to_swapchain(
         submit->struct_size < sizeof(*submit) ||
         submit->version != RIN_GPU_PRESENTATION_VERSION ||
         submit->display_id == UINT32_MAX)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (!d3d12_swapchain_image_matches(list, swapchain, image, submit))
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
     result = rindx_d3d12_present(list, image, submit->display_id);
     if (result != RIN_GPU_OK) return result;

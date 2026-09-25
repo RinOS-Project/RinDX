@@ -72,6 +72,20 @@ typedef struct RinGpuDxgiSwapchainStatusV1 {
     uint64_t reserved[1];
 } RinGpuDxgiSwapchainStatusV1;
 
+typedef struct RinGpuDxgiSwapchainBufferV1 {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t image_token;
+    uint32_t display_id;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint64_t output_generation;
+    uint64_t device_generation;
+    uint64_t resource_handle;
+    uint64_t reserved[1];
+} RinGpuDxgiSwapchainBufferV1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -86,6 +100,12 @@ int rin_gpu_dxgi_swapchain_runtime_shutdown(
 int rin_gpu_dxgi_swapchain_acquire(
     RinGpuDxgiSwapchainRuntime* runtime,
     RinGpuPresentationAcquireV1* acquire_out);
+int rin_gpu_dxgi_swapchain_get_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint32_t index,
+    RinGpuDxgiSwapchainBufferV1* buffer_out);
+int rin_gpu_dxgi_swapchain_bind_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint64_t image_token,
+    uint64_t resource_handle);
 int rin_gpu_dxgi_swapchain_present(
     RinGpuDxgiSwapchainRuntime* runtime,
     const RinGpuPresentationSubmitV1* submit, uint64_t* fence_value_out);
@@ -120,6 +140,8 @@ static_assert(sizeof(RinGpuDxgiSwapchainDescV1) == 96u,
               "RinGPU DXGI swapchain descriptor drift");
 static_assert(sizeof(RinGpuDxgiSwapchainStatusV1) == 64u,
               "RinGPU DXGI swapchain status drift");
+static_assert(sizeof(RinGpuDxgiSwapchainBufferV1) == 64u,
+              "RinGPU DXGI swapchain buffer drift");
 #else
 _Static_assert(sizeof(RinGpuDxgiWindowOwnerV1) ==
                    (sizeof(void*) == 8u ? 64u : 44u),
@@ -128,6 +150,8 @@ _Static_assert(sizeof(RinGpuDxgiSwapchainDescV1) == 96u,
                "RinGPU DXGI swapchain descriptor drift");
 _Static_assert(sizeof(RinGpuDxgiSwapchainStatusV1) == 64u,
                "RinGPU DXGI swapchain status drift");
+_Static_assert(sizeof(RinGpuDxgiSwapchainBufferV1) == 64u,
+               "RinGPU DXGI swapchain buffer drift");
 #endif
 
 #endif /* RINDX_PUBLIC_SWAPCHAIN_H */

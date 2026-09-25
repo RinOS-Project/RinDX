@@ -12,6 +12,7 @@ typedef struct DxgiSwapchainState {
     uint64_t image_tokens[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
     RinGpuPresentationRuntime presentation;
     RinGpuDxgiWindowOwnerV1 window_owner;
+    uint64_t resource_handles[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
     uint32_t buffer_count;
     uint32_t flags;
     uint32_t next_image;
@@ -122,6 +123,7 @@ static int register_images(DxgiSwapchainState* state) {
             return result;
         }
         state->image_tokens[index] = image.image_token;
+        state->resource_handles[index] = 0u;
         ++registered;
     }
     return RIN_GPU_PRESENTATION_OK;
@@ -132,6 +134,7 @@ static void unregister_images(DxgiSwapchainState* state) {
         (void)rin_gpu_presentation_unregister_image(
             &state->presentation, state->image_tokens[index]);
     memset(state->image_tokens, 0, sizeof(state->image_tokens));
+    memset(state->resource_handles, 0, sizeof(state->resource_handles));
 }
 
 static int remove_images_and_advance(DxgiSwapchainState* state,
@@ -252,6 +255,45 @@ int rin_gpu_dxgi_swapchain_runtime_shutdown(
     state->window_owner.release(state->window_owner.context,
                                 state->window_owner.native_window);
     memset(state, 0, sizeof(*state));
+    return RIN_GPU_DXGI_SWAPCHAIN_OK;
+}
+
+int rin_gpu_dxgi_swapchain_get_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint32_t index,
+    RinGpuDxgiSwapchainBufferV1* buffer_out) {
+    DxgiSwapchainState* state = swapchain_state(runtime);
+    if (!swapchain_ready(state) || !buffer_out ||
+        buffer_out->struct_size != sizeof(*buffer_out) ||
+        buffer_out->version != RIN_GPU_DXGI_SWAPCHAIN_VERSION ||
+        index >= state->buffer_count)
+        return RIN_GPU_DXGI_SWAPCHAIN_INVALID_ARGUMENT;
+    memset(buffer_out, 0, sizeof(*buffer_out));
+    buffer_out->struct_size = sizeof(*buffer_out);
+    buffer_out->version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    buffer_out->image_token = state->image_tokens[index];
+    buffer_out->display_id = state->output.display_id;
+    buffer_out->width = state->output.width;
+    buffer_out->height = state->output.height;
+    buffer_out->format = state->output.format;
+    buffer_out->output_generation = state->output.output_generation;
+    buffer_out->device_generation = state->output.device_generation;
+    buffer_out->resource_handle = state->resource_handles[index];
+    return RIN_GPU_DXGI_SWAPCHAIN_OK;
+}
+
+int rin_gpu_dxgi_swapchain_bind_buffer(
+    RinGpuDxgiSwapchainRuntime* runtime, uint64_t image_token,
+    uint64_t resource_handle) {
+    DxgiSwapchainState* state = swapchain_state(runtime);
+    int index;
+    if (!swapchain_ready(state) || image_token == 0u ||
+        resource_handle == 0u)
+        return RIN_GPU_DXGI_SWAPCHAIN_INVALID_ARGUMENT;
+    if (state->device_lost) return RIN_GPU_DXGI_SWAPCHAIN_DEVICE_LOST;
+    if (state->output_changed) return RIN_GPU_DXGI_SWAPCHAIN_OUT_OF_DATE;
+    index = image_index(state, image_token);
+    if (index < 0) return RIN_GPU_DXGI_SWAPCHAIN_OUT_OF_DATE;
+    state->resource_handles[index] = resource_handle;
     return RIN_GPU_DXGI_SWAPCHAIN_OK;
 }
 
