@@ -190,6 +190,7 @@ int main(void)
     RinGpuImageDescV1 depth_desc;
     RinGpuImageReadbackV1 depth_readback;
     RinGpuSamplerDescV1 sampler_desc;
+    RinGpuRasterStateV1 raster_state;
     RinDxD3d11MappedResource mapped;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
@@ -516,6 +517,20 @@ int main(void)
     CHECK(rindx_d3d11_begin_render_pass(&context, image, 0u, 1u,
                                         0.0f, 0.0f, 0.0f, 1.0f,
                                         1.0f) == RIN_GPU_OK);
+    memset(&raster_state, 0, sizeof(raster_state));
+    raster_state.abi_version = RIN_GPU_ABI_VERSION;
+    raster_state.struct_size = sizeof(raster_state);
+    raster_state.viewport.abi_version = RIN_GPU_ABI_VERSION;
+    raster_state.viewport.struct_size = sizeof(raster_state.viewport);
+    raster_state.viewport.width = 2.0f;
+    raster_state.viewport.height = 2.0f;
+    raster_state.viewport.max_depth = 1.0f;
+    raster_state.scissor.abi_version = RIN_GPU_ABI_VERSION;
+    raster_state.scissor.struct_size = sizeof(raster_state.scissor);
+    raster_state.scissor.width = 2u;
+    raster_state.scissor.height = 2u;
+    raster_state.scissor.enabled = 1u;
+    CHECK(rindx_d3d11_set_raster_state(&context, &raster_state) == RIN_GPU_OK);
     memset(&draw, 0, sizeof(draw));
     draw.abi_version = RIN_GPU_ABI_VERSION;
     draw.struct_size = sizeof(draw);
