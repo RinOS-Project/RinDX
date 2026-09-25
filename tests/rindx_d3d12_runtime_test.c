@@ -177,6 +177,8 @@ int main(void)
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
     RinGpuHandle invalid_pipeline = 0u;
+    RinGpuHandle depth_pipeline = 0u;
+    RinGpuHandle invalid_depth_pipeline = 0u;
     RinGpuHandle compute_shader = 0u;
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
@@ -254,6 +256,17 @@ int main(void)
     CHECK(rindx_d3d12_create_graphics_pipeline(
               &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
               1u, NULL, 0u, &invalid_pipeline) != RIN_GPU_OK);
+    pipeline_desc.base.source_color_factor = RIN_GPU_BLEND_ONE;
+    pipeline_desc.base.depth_format = RIN_GPU_FORMAT_D32_FLOAT_S8_UINT;
+    pipeline_desc.base.depth_compare = RIN_GPU_COMPARE_LESS;
+    pipeline_desc.base.depth_write_enabled = 1u;
+    CHECK(rindx_d3d12_create_graphics_pipeline(
+              &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
+              1u, NULL, 0u, &depth_pipeline) == RIN_GPU_OK);
+    pipeline_desc.base.depth_compare = 99u;
+    CHECK(rindx_d3d12_create_graphics_pipeline(
+              &device, &pipeline_desc, &vertex_attribute, 1u, &vertex_layout,
+              1u, NULL, 0u, &invalid_depth_pipeline) != RIN_GPU_OK);
     make_compute_shader(&compute);
     CHECK(rindx_d3d12_create_shader(&device, &compute,
                                     compute.header.total_size,
@@ -577,6 +590,7 @@ int main(void)
     CHECK(rindx_d3d12_reset_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, pipeline) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, depth_pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, sampler) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, compute_pipeline) == RIN_GPU_OK);

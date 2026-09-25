@@ -42,6 +42,9 @@ The bounded D3D11/D3D12 pipeline owners also pass validated blend factors and
 operations to RinGPU; the runtime tests cover a real enabled blend state and
 reject an invalid factor before pipeline creation.
 
+They also pass bounded depth format/compare/write state into the RinGPU native
+pipeline owner and reject an invalid compare operation before allocation.
+
 Build:
 
 ```sh
