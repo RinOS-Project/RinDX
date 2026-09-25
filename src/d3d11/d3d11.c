@@ -22,6 +22,7 @@ static int context_valid(const RinDxD3d11Context* context)
     return context && context->struct_size == sizeof(*context) &&
            context->version == RIN_DX_D3D11_VERSION &&
            device_valid(context->device) && context->command_list != 0u &&
+           context->deferred_context <= 1u && context->reserved0 == 0u &&
            context->state == RIN_DX_D3D11_STATE_READY;
 }
 
@@ -143,6 +144,15 @@ int rindx_d3d11_create_context(RinDxD3d11Device* device,
     return RIN_GPU_OK;
 }
 
+int rindx_d3d11_create_deferred_context(RinDxD3d11Device* device,
+                                        RinDxD3d11Context* context_out)
+{
+    int result = rindx_d3d11_create_context(device, context_out);
+    if (result != RIN_GPU_OK) return result;
+    context_out->deferred_context = 1u;
+    return RIN_GPU_OK;
+}
+
 int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
 {
     int result;
@@ -158,6 +168,63 @@ int rindx_d3d11_destroy_context(RinDxD3d11Context* context)
         if (result != RIN_GPU_OK) return result;
     }
     memset(context, 0, sizeof(*context));
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_finish_command_list(RinDxD3d11Context* context,
+                                    RinGpuHandle* command_list_out)
+{
+    RinGpuHandle closed_list;
+    RinGpuHandle replacement;
+    int result;
+
+    if (command_list_out) *command_list_out = 0u;
+    if (!context_valid(context) || context->deferred_context == 0u ||
+        !command_list_out || context->render_pass_active != 0u ||
+        context->mapped_buffer != 0u || context->predicate_query != 0u)
+        return RIN_GPU_ERROR_STATE;
+    closed_list = context->command_list;
+    result = ringpu_runtime_command_list_close(context->device->runtime,
+                                               closed_list);
+    if (result != RIN_GPU_OK) return result;
+    result = create_command_list(context, &replacement);
+    if (result != RIN_GPU_OK) {
+        context->state = RIN_DX_D3D11_STATE_CLOSED;
+        context->pending_command_list = closed_list;
+        return result;
+    }
+    context->command_list = replacement;
+    *command_list_out = closed_list;
+    return RIN_GPU_OK;
+}
+
+int rindx_d3d11_execute_command_list(RinDxD3d11Context* context,
+                                     RinGpuHandle command_list,
+                                     uint32_t restore_state,
+                                     uint64_t* fence_value_out)
+{
+    RinGpuSubmitInfoV1 submit;
+    uint64_t value;
+    int result;
+
+    if (fence_value_out) *fence_value_out = 0u;
+    if (!context_valid(context) || context->deferred_context != 0u ||
+        command_list == 0u || restore_state != 0u ||
+        context->pending_command_list != 0u || !fence_value_out)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    value = context->device->submission_value + 1u;
+    memset(&submit, 0, sizeof(submit));
+    submit.abi_version = RIN_GPU_ABI_VERSION;
+    submit.struct_size = sizeof(submit);
+    submit.command_list = command_list;
+    submit.signal_fence = context->device->fence;
+    submit.signal_value = value;
+    result = ringpu_runtime_queue_submit(context->device->runtime,
+                                         context->device->queue, &submit);
+    if (result != RIN_GPU_OK) return result;
+    context->device->submission_value = value;
+    context->pending_command_list = command_list;
+    *fence_value_out = value;
     return RIN_GPU_OK;
 }
 
@@ -216,6 +283,56 @@ int rindx_d3d11_get_query_data(RinDxD3d11Device* device,
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
     return ringpu_runtime_get_query_result(device->runtime, query, flags,
                                            result);
+}
+
+int rindx_d3d11_set_predication(RinDxD3d11Context* context,
+                                RinGpuHandle query, uint32_t predicate_value)
+{
+    RinGpuQueryResultV1 result;
+
+    if (!context_valid(context) || predicate_value > 1u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (query == 0u) {
+        context->predicate_query = 0u;
+        context->predicate_value = 0u;
+        context->predication_enabled = 0u;
+        return RIN_GPU_OK;
+    }
+    memset(&result, 0, sizeof(result));
+    result.struct_size = sizeof(result);
+    result.abi_version = RIN_GPU_ABI_VERSION;
+    if (ringpu_runtime_get_query_result(context->device->runtime, query, 0u,
+                                        &result) != RIN_GPU_OK ||
+        result.query_type != RIN_DX_D3D11_QUERY_OCCLUSION ||
+        result.available == 0u)
+        return RIN_GPU_ERROR_BUSY;
+    context->predicate_query = query;
+    context->predicate_value = predicate_value;
+    context->predication_enabled = 1u;
+    return RIN_GPU_OK;
+}
+
+static int d3d11_predication_allows(RinDxD3d11Context* context,
+                                    uint32_t* allowed_out)
+{
+    RinGpuQueryResultV1 result;
+    int status;
+
+    if (!context || !allowed_out) return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    *allowed_out = 1u;
+    if (context->predication_enabled == 0u) return RIN_GPU_OK;
+    memset(&result, 0, sizeof(result));
+    result.struct_size = sizeof(result);
+    result.abi_version = RIN_GPU_ABI_VERSION;
+    status = ringpu_runtime_get_query_result(
+        context->device->runtime, context->predicate_query, 0u, &result);
+    if (status != RIN_GPU_OK) return status;
+    if (result.query_type != RIN_DX_D3D11_QUERY_OCCLUSION ||
+        result.available == 0u)
+        return RIN_GPU_ERROR_BUSY;
+    *allowed_out =
+        ((result.values[0] != 0u) == (context->predicate_value != 0u)) ? 1u : 0u;
+    return RIN_GPU_OK;
 }
 
 int rindx_d3d11_create_buffer(RinDxD3d11Device* device,
@@ -785,8 +902,12 @@ int rindx_d3d11_bind_graphics_resources(RinDxD3d11Context* context,
 
 int rindx_d3d11_draw(RinDxD3d11Context* context, const RinGpuDrawV1* draw)
 {
+    uint32_t allowed;
     if (!context_valid(context) || !draw || draw->flags != RIN_DX_D3D11_DRAW_FLAG_MASK)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (d3d11_predication_allows(context, &allowed) != RIN_GPU_OK)
+        return RIN_GPU_ERROR_BUSY;
+    if (!allowed) return RIN_GPU_OK;
     return ringpu_runtime_command_draw(context->device->runtime,
                                        context->command_list, draw);
 }
@@ -794,7 +915,11 @@ int rindx_d3d11_draw(RinDxD3d11Context* context, const RinGpuDrawV1* draw)
 int rindx_d3d11_draw_vertices(RinDxD3d11Context* context,
                               const RinGpuDrawVerticesV2* draw)
 {
+    uint32_t allowed;
     if (!context_valid(context)) return RIN_GPU_ERROR_STATE;
+    if (d3d11_predication_allows(context, &allowed) != RIN_GPU_OK)
+        return RIN_GPU_ERROR_BUSY;
+    if (!allowed) return RIN_GPU_OK;
     return ringpu_runtime_command_draw_vertices_v2(
         context->device->runtime, context->command_list, draw);
 }
@@ -802,8 +927,12 @@ int rindx_d3d11_draw_vertices(RinDxD3d11Context* context,
 int rindx_d3d11_draw_indexed(RinDxD3d11Context* context,
                              const RinGpuDrawIndexedV2* draw)
 {
+    uint32_t allowed;
     if (!context_valid(context) || !draw || draw->instance_count != 1u)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (d3d11_predication_allows(context, &allowed) != RIN_GPU_OK)
+        return RIN_GPU_ERROR_BUSY;
+    if (!allowed) return RIN_GPU_OK;
     return ringpu_runtime_command_draw_indexed_v2(
         context->device->runtime, context->command_list, draw);
 }
@@ -811,8 +940,12 @@ int rindx_d3d11_draw_indexed(RinDxD3d11Context* context,
 int rindx_d3d11_draw_indexed_instanced(
     RinDxD3d11Context* context, const RinGpuDrawIndexedV2* draw)
 {
+    uint32_t allowed;
     if (!context_valid(context) || !draw || draw->instance_count <= 1u)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (d3d11_predication_allows(context, &allowed) != RIN_GPU_OK)
+        return RIN_GPU_ERROR_BUSY;
+    if (!allowed) return RIN_GPU_OK;
     return ringpu_runtime_command_draw_indexed_v2(
         context->device->runtime, context->command_list, draw);
 }
@@ -820,8 +953,12 @@ int rindx_d3d11_draw_indexed_instanced(
 int rindx_d3d11_dispatch(RinDxD3d11Context* context,
                          const RinGpuDispatchV1* dispatch)
 {
+    uint32_t allowed;
     if (!context_valid(context) || context->render_pass_active != 0u)
         return RIN_GPU_ERROR_STATE;
+    if (d3d11_predication_allows(context, &allowed) != RIN_GPU_OK)
+        return RIN_GPU_ERROR_BUSY;
+    if (!allowed) return RIN_GPU_OK;
     return ringpu_runtime_command_dispatch(context->device->runtime,
                                            context->command_list, dispatch);
 }

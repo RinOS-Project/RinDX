@@ -52,6 +52,11 @@ typedef struct RinDxD3d11Context {
     uint64_t mapped_size;
     uint32_t mapped_type;
     uint32_t mapped_flags;
+    RinGpuHandle predicate_query;
+    uint32_t predicate_value;
+    uint32_t predication_enabled;
+    uint32_t deferred_context;
+    uint32_t reserved0;
 } RinDxD3d11Context;
 
 typedef struct RinDxD3d11MappedResource {
@@ -82,10 +87,19 @@ int rindx_d3d11_get_device_removed_reason(
 int rindx_d3d11_mark_device_removed(RinDxD3d11Device* device);
 int rindx_d3d11_create_context(RinDxD3d11Device* device,
                                RinDxD3d11Context* context_out);
+int rindx_d3d11_create_deferred_context(RinDxD3d11Device* device,
+                                        RinDxD3d11Context* context_out);
 int rindx_d3d11_destroy_context(RinDxD3d11Context* context);
+int rindx_d3d11_finish_command_list(RinDxD3d11Context* context,
+                                    RinGpuHandle* command_list_out);
+int rindx_d3d11_execute_command_list(RinDxD3d11Context* context,
+                                     RinGpuHandle command_list,
+                                     uint32_t restore_state,
+                                     uint64_t* fence_value_out);
 /* Bounded software query owner. The result ABI is RinGPU's versioned query
- * result; native D3D11 predicate/GetData translation remains fail-closed
- * until a validated COM owner exists. */
+ * result; the host predicate path consumes an already-available occlusion
+ * result and rejects an unavailable result rather than guessing. Native
+ * D3D11 predicate/GetData translation remains a separate COM boundary. */
 int rindx_d3d11_create_query(RinDxD3d11Device* device, uint32_t query_type,
                              RinGpuHandle* query_out);
 int rindx_d3d11_begin_query(RinDxD3d11Context* context, RinGpuHandle query);
@@ -94,6 +108,8 @@ int rindx_d3d11_reset_query(RinDxD3d11Context* context, RinGpuHandle query);
 int rindx_d3d11_get_query_data(RinDxD3d11Device* device,
                                RinGpuHandle query, uint32_t flags,
                                RinGpuQueryResultV1* result);
+int rindx_d3d11_set_predication(RinDxD3d11Context* context,
+                                RinGpuHandle query, uint32_t predicate_value);
 
 int rindx_d3d11_create_buffer(RinDxD3d11Device* device,
                               const RinGpuBufferDescV1* descriptor,
@@ -211,14 +227,14 @@ int rindx_d3d11_readback_image(
 #if defined(__cplusplus)
 static_assert(sizeof(RinDxD3d11Device) == 48u,
               "RinDX D3D11 device ABI drift");
-static_assert(sizeof(RinDxD3d11Context) == 88u,
+static_assert(sizeof(RinDxD3d11Context) == 112u,
               "RinDX D3D11 context ABI drift");
 static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
               "RinDX D3D11 mapped-resource ABI drift");
 #else
 _Static_assert(sizeof(RinDxD3d11Device) == 48u,
                "RinDX D3D11 device ABI drift");
-_Static_assert(sizeof(RinDxD3d11Context) == 88u,
+_Static_assert(sizeof(RinDxD3d11Context) == 112u,
                "RinDX D3D11 context ABI drift");
 _Static_assert(sizeof(RinDxD3d11MappedResource) == 56u,
                "RinDX D3D11 mapped-resource ABI drift");

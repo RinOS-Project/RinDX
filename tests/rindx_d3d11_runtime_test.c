@@ -280,6 +280,10 @@ int main(void)
     RinGpuRasterStateV1 raster_state;
     RinGpuQueryResultV1 query_result;
     RinDxD3d11MappedResource mapped;
+    RinDxD3d11Context predicate_context;
+    RinDxD3d11Context predicate_false_context;
+    RinDxD3d11Context deferred_context;
+    RinDxD3d11Context execute_context;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle sample_fragment_shader = 0u;
@@ -296,10 +300,13 @@ int main(void)
     RinGpuHandle sampler = 0u;
     RinGpuHandle invalid_sampler = 0u;
     RinGpuHandle occlusion_query = 0u;
+    RinGpuHandle timestamp_query = 0u;
+    RinGpuHandle pipeline_query = 0u;
     RinGpuHandle invalid_query = 0u;
     RinGpuHandle image = 0u;
     RinGpuHandle texture1d = 0u;
     RinGpuHandle texture3d = 0u;
+    RinGpuHandle deferred_command_list = 0u;
     RinGpuHandle storage_image = 0u;
     RinGpuHandle sampled_image = 0u;
     RinGpuHandle sample_target = 0u;
@@ -357,6 +364,11 @@ int main(void)
     CHECK(rindx_d3d11_create_context(&device, &context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_OCCLUSION,
                                    &occlusion_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_TIMESTAMP,
+                                   &timestamp_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_query(
+              &device, RIN_DX_D3D11_QUERY_PIPELINE_STATISTICS,
+              &pipeline_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_query(&device, 99u, &invalid_query) !=
           RIN_GPU_OK);
     make_vertex(&vertex);
@@ -762,6 +774,8 @@ int main(void)
               &context, storage_image, RIN_GPU_IMAGE_STATE_UNDEFINED,
               RIN_GPU_IMAGE_STATE_SHADER_READ) == RIN_GPU_OK);
     CHECK(rindx_d3d11_begin_query(&context, occlusion_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_query(&context, timestamp_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_query(&context, pipeline_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_begin_render_pass(&context, image, 0u, 1u,
                                         0.0f, 0.0f, 0.0f, 1.0f,
                                         1.0f) == RIN_GPU_OK);
@@ -808,6 +822,7 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d11_end_render_pass(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_end_query(&context, occlusion_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_query(&context, timestamp_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(
               &context, storage_image, RIN_GPU_IMAGE_STATE_SHADER_READ,
               RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
@@ -823,6 +838,7 @@ int main(void)
         dispatch.group_count_z = 1u;
         CHECK(rindx_d3d11_dispatch(&context, &dispatch) == RIN_GPU_OK);
     }
+    CHECK(rindx_d3d11_end_query(&context, pipeline_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(&context, image,
                                        RIN_GPU_IMAGE_STATE_COLOR_TARGET,
                                        RIN_GPU_IMAGE_STATE_COPY_SOURCE) ==
@@ -862,6 +878,132 @@ int main(void)
                                      &query_result) == RIN_GPU_OK);
     CHECK(query_result.query_type == RIN_DX_D3D11_QUERY_OCCLUSION &&
           query_result.available != 0u && query_result.values[0] != 0u);
+    memset(&query_result, 0, sizeof(query_result));
+    query_result.struct_size = sizeof(query_result);
+    query_result.abi_version = RIN_GPU_ABI_VERSION;
+    CHECK(rindx_d3d11_get_query_data(&device, timestamp_query, 0u,
+                                     &query_result) == RIN_GPU_OK);
+    CHECK(query_result.query_type == RIN_DX_D3D11_QUERY_TIMESTAMP &&
+          query_result.available != 0u && query_result.values[0] != 0u);
+    memset(&query_result, 0, sizeof(query_result));
+    query_result.struct_size = sizeof(query_result);
+    query_result.abi_version = RIN_GPU_ABI_VERSION;
+    CHECK(rindx_d3d11_get_query_data(&device, pipeline_query, 0u,
+                                     &query_result) == RIN_GPU_OK);
+    CHECK(query_result.query_type ==
+              RIN_DX_D3D11_QUERY_PIPELINE_STATISTICS &&
+          query_result.available != 0u &&
+          query_result.values[RIN_GPU_PIPELINE_STAT_INPUT_ASSEMBLY_VERTICES] !=
+              0u &&
+          query_result.values[RIN_GPU_PIPELINE_STAT_DRAW_CALLS] >= 2u &&
+          query_result.values[RIN_GPU_PIPELINE_STAT_DISPATCH_CALLS] >= 1u);
+    memset(&predicate_context, 0, sizeof(predicate_context));
+    CHECK(rindx_d3d11_create_context(&device, &predicate_context) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_set_predication(
+              &predicate_context, timestamp_query, 1u) == RIN_GPU_ERROR_BUSY);
+    CHECK(rindx_d3d11_set_predication(&predicate_context, occlusion_query, 1u) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &predicate_context, sample_target,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_render_pass(&predicate_context, sample_target, 0u,
+                                        1u, 0.0f, 0.0f, 0.0f, 1.0f,
+                                        1.0f) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_bind_graphics_resources(&predicate_context,
+                                              sample_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_draw_indexed_instanced(&predicate_context, &sample_draw) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_render_pass(&predicate_context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &predicate_context, sample_target,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_close_and_submit(&predicate_context, &fence_value) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_context(&predicate_context) == RIN_GPU_OK);
+    memset(sampled_pixels, 0, sizeof(sampled_pixels));
+    CHECK(rindx_d3d11_readback_image(&device, sample_target, &readback,
+                                     sampled_pixels,
+                                     sizeof(sampled_pixels)) == RIN_GPU_OK);
+    CHECK(sampled_pixels[0u] >= 60u && sampled_pixels[1u] == 0u &&
+          sampled_pixels[2u] == 0u && sampled_pixels[3u] == 255u);
+    memset(&predicate_false_context, 0, sizeof(predicate_false_context));
+    CHECK(rindx_d3d11_create_context(&device, &predicate_false_context) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_set_predication(&predicate_false_context, occlusion_query,
+                                      0u) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &predicate_false_context, sample_target,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_begin_render_pass(
+              &predicate_false_context, sample_target, 0u, 1u, 0.0f, 0.0f,
+              0.0f, 1.0f, 1.0f) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_bind_graphics_resources(&predicate_false_context,
+                                              sample_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_draw_indexed_instanced(&predicate_false_context,
+                                             &sample_draw) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_end_render_pass(&predicate_false_context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &predicate_false_context, sample_target,
+              RIN_GPU_IMAGE_STATE_COLOR_TARGET,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_close_and_submit(&predicate_false_context, &fence_value) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_context(&predicate_false_context) == RIN_GPU_OK);
+    memset(sampled_pixels, 0, sizeof(sampled_pixels));
+    CHECK(rindx_d3d11_readback_image(&device, sample_target, &readback,
+                                     sampled_pixels,
+                                     sizeof(sampled_pixels)) == RIN_GPU_OK);
+    CHECK(sampled_pixels[0u] == 0u && sampled_pixels[1u] == 0u &&
+          sampled_pixels[2u] == 0u && sampled_pixels[3u] == 255u);
+    memset(&deferred_context, 0, sizeof(deferred_context));
+    CHECK(rindx_d3d11_create_deferred_context(&device, &deferred_context) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &deferred_context, clear_target,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE,
+              RIN_GPU_IMAGE_STATE_COPY_DESTINATION) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_clear_render_target_view(&deferred_context, clear_target,
+                                               0.0f, 0.0f, 1.0f, 1.0f) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &deferred_context, clear_target,
+              RIN_GPU_IMAGE_STATE_COPY_DESTINATION,
+              RIN_GPU_IMAGE_STATE_COPY_SOURCE) == RIN_GPU_OK);
+    deferred_command_list = 0u;
+    CHECK(rindx_d3d11_finish_command_list(&deferred_context,
+                                          &deferred_command_list) ==
+          RIN_GPU_OK);
+    CHECK(deferred_command_list != 0u);
+    CHECK(rindx_d3d11_destroy_context(&deferred_context) == RIN_GPU_OK);
+    memset(&execute_context, 0, sizeof(execute_context));
+    CHECK(rindx_d3d11_create_context(&device, &execute_context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_execute_command_list(&execute_context,
+                                           deferred_command_list, 1u,
+                                           &fence_value) ==
+          RIN_GPU_ERROR_INVALID_ARGUMENT);
+    CHECK(rindx_d3d11_execute_command_list(&execute_context,
+                                           deferred_command_list, 0u,
+                                           &fence_value) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_wait(&device, fence_value, RIN_GPU_TIMEOUT_INFINITE) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_context(&execute_context) == RIN_GPU_OK);
+    memset(sampled_pixels, 0, sizeof(sampled_pixels));
+    CHECK(rindx_d3d11_readback_image(&device, clear_target, &readback,
+                                     sampled_pixels,
+                                     sizeof(sampled_pixels)) == RIN_GPU_OK);
+    for (uint32_t pixel = 0u; pixel < sizeof(sampled_pixels); pixel += 4u)
+        CHECK(sampled_pixels[pixel] == 0u &&
+              sampled_pixels[pixel + 1u] == 0u &&
+              sampled_pixels[pixel + 2u] == 255u &&
+              sampled_pixels[pixel + 3u] == 255u);
     memset(&readback, 0, sizeof(readback));
     readback.abi_version = RIN_GPU_ABI_VERSION;
     readback.struct_size = sizeof(readback);
@@ -893,8 +1035,8 @@ int main(void)
                                      clear_pixels, sizeof(clear_pixels)) ==
           RIN_GPU_OK);
     for (uint32_t pixel = 0u; pixel < sizeof(clear_pixels); pixel += 4u)
-        CHECK(clear_pixels[pixel] == 0u && clear_pixels[pixel + 1u] == 255u &&
-              clear_pixels[pixel + 2u] == 0u && clear_pixels[pixel + 3u] ==
+        CHECK(clear_pixels[pixel] == 0u && clear_pixels[pixel + 1u] == 0u &&
+              clear_pixels[pixel + 2u] == 255u && clear_pixels[pixel + 3u] ==
               255u);
     memset(&depth_readback, 0, sizeof(depth_readback));
     depth_readback.abi_version = RIN_GPU_ABI_VERSION;
@@ -955,6 +1097,8 @@ int main(void)
           mip_readback_pixels[3u] == 255u);
     CHECK(rindx_d3d11_destroy_context(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, occlusion_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, timestamp_query) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, pipeline_query) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, sample_bind_group) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, graphics_bind_group) == RIN_GPU_OK);
