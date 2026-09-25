@@ -262,6 +262,15 @@ int rindx_d3d12_create_compute_pipeline(
                                                   pipeline_out);
 }
 
+int rindx_d3d12_create_sampler(
+    RinDxD3d12Device* device, const RinGpuSamplerDescV1* descriptor,
+    RinGpuHandle* sampler_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_create_sampler(device->runtime, descriptor,
+                                         sampler_out);
+}
+
 int rindx_d3d12_create_compute_bind_group(
     RinDxD3d12Device* device, RinGpuHandle pipeline,
     const RinGpuBufferBindingV1* bindings, uint32_t binding_count,

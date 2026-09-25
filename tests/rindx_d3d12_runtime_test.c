@@ -170,6 +170,7 @@ int main(void)
     RinGpuImageResolveV1 resolve;
     RinGpuBufferDescV1 transfer_buffer_desc;
     RinGpuBufferClearV1 buffer_clear;
+    RinGpuSamplerDescV1 sampler_desc;
     RinDxD3d12MappedResource mapped;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
@@ -177,6 +178,8 @@ int main(void)
     RinGpuHandle compute_shader = 0u;
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
+    RinGpuHandle sampler = 0u;
+    RinGpuHandle invalid_sampler = 0u;
     RinGpuHandle image = 0u;
     RinGpuHandle vertex_buffer = 0u;
     RinGpuHandle non_cpu_buffer = 0u;
@@ -247,6 +250,21 @@ int main(void)
     CHECK(rindx_d3d12_create_compute_bind_group(&device, compute_pipeline,
                                                 NULL, 0u,
                                                 &compute_bind_group) ==
+          RIN_GPU_OK);
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.abi_version = RIN_GPU_ABI_VERSION;
+    sampler_desc.struct_size = sizeof(sampler_desc);
+    sampler_desc.min_filter = RIN_GPU_SAMPLER_FILTER_LINEAR;
+    sampler_desc.mag_filter = RIN_GPU_SAMPLER_FILTER_LINEAR;
+    sampler_desc.mip_filter = RIN_GPU_SAMPLER_MIP_FILTER_NONE;
+    sampler_desc.address_u = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.address_v = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.address_w = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.max_anisotropy = 1u;
+    CHECK(rindx_d3d12_create_sampler(&device, &sampler_desc, &sampler) ==
+          RIN_GPU_OK);
+    sampler_desc.min_filter = 99u;
+    CHECK(rindx_d3d12_create_sampler(&device, &sampler_desc, &invalid_sampler) !=
           RIN_GPU_OK);
 
     memset(&image_desc, 0, sizeof(image_desc));
@@ -533,6 +551,7 @@ int main(void)
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, compute_bind_group) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, sampler) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, compute_pipeline) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, compute_shader) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, fragment_shader) == RIN_GPU_OK);

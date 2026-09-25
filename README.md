@@ -13,11 +13,13 @@ resolution is an explicit `RinDxProviderV1` boundary; RinNT owns policy and
 does not embed a DXGI implementation. Physical GPU drivers, IRQ/DMA, external
 backends, and hardware evidence remain outside this software split.
 
-The bounded D3D11/D3D12 owners also expose validated RinGPU buffer/image copy,
+The bounded D3D11/D3D12 owners also expose validated RinGPU sampler creation,
+buffer/image copy,
 resolve, clear, and image-upload operations. They require explicit regions and
 RinGPU resource states; native COM command bytecode, Map/Unmap, full
 UpdateSubresource/GenerateMips semantics, and full Windows ABI compatibility
-remain fail-closed boundaries. The host runtime tests cover D3D11 buffer and
+remain fail-closed boundaries. Invalid sampler descriptors are rejected by the
+RinGPU validation/backend path. The host runtime tests cover D3D11 buffer and
 depth/stencil clear, D3D12 buffer clear, CPU-visible buffer readback, image
 transfer, mip generation, and readback in addition to draw/dispatch.
 
