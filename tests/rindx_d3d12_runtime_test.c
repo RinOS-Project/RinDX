@@ -184,6 +184,39 @@ static int present(void* context, const RinGpuSoftwarePresentedImageV1* image)
     return RIN_GPU_OK;
 }
 
+static int swapchain_retain(void* context, void* native_window)
+{
+    return context && native_window ? 0 : -1;
+}
+
+static void swapchain_release(void* context, void* native_window)
+{
+    (void)context;
+    (void)native_window;
+}
+
+static int swapchain_validate(void* context, void* native_window,
+                              uint32_t display_id)
+{
+    return context && native_window && display_id == RIN_GPU_PRIMARY_DISPLAY
+               ? 0
+               : -1;
+}
+
+static int swapchain_submit(void* context,
+                            const RinGpuPresentationSubmitV1* submit,
+                            uint64_t fence_value)
+{
+    (void)fence_value;
+    return context && submit && submit->image_token != 0u ? 0 : -1;
+}
+
+static int swapchain_cancel(void* context,
+                            const RinGpuPresentationCompletionV1* pending)
+{
+    return context && pending && pending->image_token != 0u ? 0 : -1;
+}
+
 static int acquire(void* context, const RinGpuImageDescV1* descriptor,
                    uint64_t allocation_bytes,
                    RinGpuSoftwareExternalImageV1* storage)
@@ -238,6 +271,13 @@ int main(void)
     RinGpuAdapterInfoV1 adapter_info;
     RinDxD3d12CommandAllocator allocator;
     RinDxD3d12CommandList list;
+    RinDxD3d12Device swapchain_device;
+    RinGpuDxgiSwapchainRuntime swapchain_runtime;
+    RinGpuDxgiSwapchainDescV1 swapchain_desc;
+    RinGpuDxgiWindowOwnerV1 swapchain_window;
+    RinGpuPresentationBackendV1 swapchain_backend;
+    RinGpuPresentationOutputV1 swapchain_output;
+    RinGpuDxgiSwapchainStatusV1 swapchain_status;
     ShaderBlob vertex;
     ShaderBlob fragment;
     ShaderBlob storage_fragment;
@@ -322,6 +362,50 @@ int main(void)
     surface.present_context = &present_capture;
     CHECK(rindx_d3d12_create_device(&surface, &feature_level, 1u, &device) ==
           RIN_GPU_OK);
+    memset(&swapchain_output, 0, sizeof(swapchain_output));
+    swapchain_output.struct_size = sizeof(swapchain_output);
+    swapchain_output.version = RIN_GPU_PRESENTATION_VERSION;
+    swapchain_output.display_id = surface.display.display_id;
+    swapchain_output.flags = RIN_GPU_PRESENTATION_OUTPUT_FIFO;
+    swapchain_output.width = surface.display.width;
+    swapchain_output.height = surface.display.height;
+    swapchain_output.refresh_millihertz = surface.display.refresh_millihertz;
+    swapchain_output.format = surface.display.format;
+    swapchain_output.output_generation = 1u;
+    swapchain_output.device_generation = surface.device_generation;
+    memset(&swapchain_desc, 0, sizeof(swapchain_desc));
+    swapchain_desc.struct_size = sizeof(swapchain_desc);
+    swapchain_desc.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    swapchain_desc.buffer_count = 2u;
+    swapchain_desc.output = swapchain_output;
+    memset(&swapchain_window, 0, sizeof(swapchain_window));
+    swapchain_window.struct_size = sizeof(swapchain_window);
+    swapchain_window.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    swapchain_window.context = &present_capture;
+    swapchain_window.native_window = (void*)(uintptr_t)1u;
+    swapchain_window.retain = swapchain_retain;
+    swapchain_window.release = swapchain_release;
+    swapchain_window.validate = swapchain_validate;
+    memset(&swapchain_backend, 0, sizeof(swapchain_backend));
+    swapchain_backend.struct_size = sizeof(swapchain_backend);
+    swapchain_backend.version = RIN_GPU_PRESENTATION_VERSION;
+    swapchain_backend.context = &present_capture;
+    swapchain_backend.submit = swapchain_submit;
+    swapchain_backend.cancel = swapchain_cancel;
+    CHECK(rindx_d3d12_create_device_and_swapchain(
+              &surface, &feature_level, 1u, &swapchain_desc, &swapchain_window,
+              &swapchain_backend, &swapchain_device, &swapchain_runtime) ==
+          RIN_GPU_OK);
+    memset(&swapchain_status, 0, sizeof(swapchain_status));
+    swapchain_status.struct_size = sizeof(swapchain_status);
+    swapchain_status.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    CHECK(rin_gpu_dxgi_swapchain_get_status(&swapchain_runtime,
+                                            &swapchain_status) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
+    CHECK(swapchain_status.buffer_count == 2u);
+    CHECK(rin_gpu_dxgi_swapchain_runtime_shutdown(&swapchain_runtime) ==
+          RIN_GPU_DXGI_SWAPCHAIN_OK);
+    CHECK(rindx_d3d12_destroy_device(&swapchain_device) == RIN_GPU_OK);
     memset(&adapter_info, 0, sizeof(adapter_info));
     adapter_info.abi_version = RIN_GPU_ABI_VERSION;
     adapter_info.struct_size = sizeof(adapter_info);

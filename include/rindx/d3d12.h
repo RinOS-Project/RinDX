@@ -3,6 +3,7 @@
 #define RINDX_PUBLIC_D3D12_H
 
 #include <ringpu/runtime.h>
+#include <rindx/swapchain.h>
 
 #include <stdint.h>
 
@@ -81,6 +82,17 @@ int rindx_d3d12_create_device(
     const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out);
+/* Bounded host CreateDeviceAndSwapChain sequencing. The swapchain remains the
+ * existing versioned RinDX presentation owner; native HWND/COM back-buffer
+ * identity is not inferred from this entry point. */
+int rindx_d3d12_create_device_and_swapchain(
+    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const uint32_t* requested_feature_levels, uint32_t feature_level_count,
+    const RinGpuDxgiSwapchainDescV1* swapchain_desc,
+    const RinGpuDxgiWindowOwnerV1* window_owner,
+    const RinGpuPresentationBackendV1* presentation_backend,
+    RinDxD3d12Device* device_out,
+    RinGpuDxgiSwapchainRuntime* swapchain_out);
 int rindx_d3d12_destroy_device(RinDxD3d12Device* device);
 /* Bounded adapter/feature query sourced from the validated RinGPU adapter
  * descriptor. Native node enumeration remains a separate boundary. */

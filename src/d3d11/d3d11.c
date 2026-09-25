@@ -110,6 +110,34 @@ int rindx_d3d11_destroy_device(RinDxD3d11Device* device)
     return RIN_GPU_OK;
 }
 
+int rindx_d3d11_create_device_and_swapchain(
+    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const uint32_t* requested_feature_levels, uint32_t feature_level_count,
+    const RinGpuDxgiSwapchainDescV1* swapchain_desc,
+    const RinGpuDxgiWindowOwnerV1* window_owner,
+    const RinGpuPresentationBackendV1* presentation_backend,
+    RinDxD3d11Device* device_out,
+    RinGpuDxgiSwapchainRuntime* swapchain_out)
+{
+    int result;
+    int swapchain_result;
+    if (!surface || !swapchain_desc || !window_owner ||
+        !presentation_backend || !device_out || !swapchain_out)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(swapchain_out, 0, sizeof(*swapchain_out));
+    result = rindx_d3d11_create_device(surface, requested_feature_levels,
+                                       feature_level_count, device_out);
+    if (result != RIN_GPU_OK) return result;
+    swapchain_result = rin_gpu_dxgi_swapchain_runtime_init(
+        swapchain_out, swapchain_desc, window_owner, presentation_backend);
+    if (swapchain_result != RIN_GPU_DXGI_SWAPCHAIN_OK) {
+        (void)rindx_d3d11_destroy_device(device_out);
+        memset(swapchain_out, 0, sizeof(*swapchain_out));
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return RIN_GPU_OK;
+}
+
 int rindx_d3d11_get_device_removed_reason(
     const RinDxD3d11Device* device)
 {
