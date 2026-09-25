@@ -87,6 +87,9 @@ int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,
                             RinGpuHandle destination, uint64_t destination_offset,
                             RinGpuHandle source, uint64_t source_offset,
                             uint64_t size_bytes);
+int rindx_d3d11_clear_buffer(RinDxD3d11Context* context,
+                             RinGpuHandle destination,
+                             const RinGpuBufferClearV1* clear);
 int rindx_d3d11_copy_resource(RinDxD3d11Context* context,
                               RinGpuHandle destination, RinGpuHandle source);
 int rindx_d3d11_copy_subresource_region(

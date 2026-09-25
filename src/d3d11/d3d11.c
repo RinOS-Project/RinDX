@@ -283,6 +283,16 @@ int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,
         destination_offset, source, source_offset, size_bytes);
 }
 
+int rindx_d3d11_clear_buffer(RinDxD3d11Context* context,
+                             RinGpuHandle destination,
+                             const RinGpuBufferClearV1* clear)
+{
+    if (!context_valid(context) || destination == 0u || !clear)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_command_clear_buffer(
+        context->device->runtime, context->command_list, destination, clear);
+}
+
 int rindx_d3d11_copy_resource(RinDxD3d11Context* context,
                               RinGpuHandle destination, RinGpuHandle source)
 {

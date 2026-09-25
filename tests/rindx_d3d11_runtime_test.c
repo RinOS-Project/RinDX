@@ -185,6 +185,10 @@ int main(void)
     RinGpuImageDescV1 mip_desc;
     RinGpuImageUploadV1 mip_upload;
     RinGpuImageReadbackV1 mip_readback;
+    RinGpuBufferDescV1 transfer_buffer_desc;
+    RinGpuBufferClearV1 buffer_clear;
+    RinGpuImageDescV1 depth_desc;
+    RinGpuImageReadbackV1 depth_readback;
     RinGpuHandle vertex_shader = 0u;
     RinGpuHandle fragment_shader = 0u;
     RinGpuHandle pipeline = 0u;
@@ -199,6 +203,9 @@ int main(void)
     RinGpuHandle subresource_destination = 0u;
     RinGpuHandle clear_target = 0u;
     RinGpuHandle mip_image = 0u;
+    RinGpuHandle transfer_buffer_source = 0u;
+    RinGpuHandle transfer_buffer_destination = 0u;
+    RinGpuHandle depth_image = 0u;
     uint8_t pixels[16u] = {0};
     uint8_t copied_pixels[16u] = {0};
     uint8_t subresource_pixels[16u] = {0};
@@ -207,6 +214,7 @@ int main(void)
     uint8_t mip1_pixels[16u] = {0};
     uint8_t mip2_pixels[4u] = {0};
     uint8_t mip_readback_pixels[16u] = {0};
+    uint8_t depth_pixels[32u] = {0};
     static const uint8_t transfer_source_pixels[16u] = {
         9u, 8u, 7u, 255u, 19u, 18u, 17u, 255u,
         29u, 28u, 27u, 255u, 39u, 38u, 37u, 255u};
@@ -320,6 +328,30 @@ int main(void)
                                    sizeof(zero_pixels)) == RIN_GPU_OK);
     CHECK(rindx_d3d11_upload_image(&device, clear_target, &transfer_upload,
                                    zero_pixels, sizeof(zero_pixels)) == RIN_GPU_OK);
+    memset(&transfer_buffer_desc, 0, sizeof(transfer_buffer_desc));
+    transfer_buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
+    transfer_buffer_desc.struct_size = sizeof(transfer_buffer_desc);
+    transfer_buffer_desc.size_bytes = 16u;
+    transfer_buffer_desc.usage = RIN_GPU_BUFFER_COPY_SOURCE |
+                                 RIN_GPU_BUFFER_COPY_DESTINATION;
+    transfer_buffer_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    CHECK(rindx_d3d11_create_buffer(&device, &transfer_buffer_desc,
+                                    &transfer_buffer_source) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_buffer(&device, &transfer_buffer_desc,
+                                    &transfer_buffer_destination) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_upload_buffer(&device, transfer_buffer_source, 0u,
+                                    transfer_source_pixels,
+                                    sizeof(transfer_source_pixels)) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_upload_buffer(&device, transfer_buffer_destination, 0u,
+                                    zero_pixels, sizeof(zero_pixels)) == RIN_GPU_OK);
+    depth_desc = transfer_desc;
+    depth_desc.format = RIN_GPU_FORMAT_D32_FLOAT_S8_UINT;
+    depth_desc.usage = RIN_GPU_IMAGE_COPY_SOURCE |
+                       RIN_GPU_IMAGE_COPY_DESTINATION |
+                       RIN_GPU_IMAGE_DEPTH_STENCIL;
+    depth_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
+    CHECK(rindx_d3d11_create_texture2d(&device, &depth_desc, &depth_image) ==
+          RIN_GPU_OK);
     mip_desc = transfer_desc;
     mip_desc.width = 4u;
     mip_desc.height = 4u;
@@ -380,9 +412,25 @@ int main(void)
               &copy_region) == RIN_GPU_OK);
     CHECK(rindx_d3d11_clear_render_target_view(
               &context, clear_target, 0.0f, 1.0f, 0.0f, 1.0f) == RIN_GPU_OK);
+    memset(&buffer_clear, 0, sizeof(buffer_clear));
+    buffer_clear.abi_version = RIN_GPU_ABI_VERSION;
+    buffer_clear.struct_size = sizeof(buffer_clear);
+    buffer_clear.size_bytes = 16u;
+    buffer_clear.pattern = UINT32_C(0x01020304);
+    CHECK(rindx_d3d11_copy_buffer(&context, transfer_buffer_destination, 0u,
+                                  transfer_buffer_source, 0u, 16u) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_clear_buffer(&context, transfer_buffer_destination,
+                                   &buffer_clear) == RIN_GPU_OK);
     CHECK(rindx_d3d11_clear_depth_stencil_view(
               &context, clear_target, RIN_GPU_IMAGE_CLEAR_DEPTH, 1.0f, 0u) !=
           RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(
+              &context, depth_image, RIN_GPU_IMAGE_STATE_UNDEFINED,
+              RIN_GPU_IMAGE_STATE_COPY_DESTINATION) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_clear_depth_stencil_view(
+              &context, depth_image,
+              RIN_GPU_IMAGE_CLEAR_DEPTH | RIN_GPU_IMAGE_CLEAR_STENCIL,
+              0.5f, 0x7fu) == RIN_GPU_OK);
     transition.before_state = RIN_GPU_IMAGE_STATE_COPY_DESTINATION;
     transition.after_state = RIN_GPU_IMAGE_STATE_COPY_SOURCE;
     CHECK(rindx_d3d11_transition_image(&context, transfer_destination,
@@ -392,6 +440,9 @@ int main(void)
                                        transition.before_state,
                                        transition.after_state) == RIN_GPU_OK);
     CHECK(rindx_d3d11_transition_image(&context, clear_target,
+                                       transition.before_state,
+                                       transition.after_state) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_transition_image(&context, depth_image,
                                        transition.before_state,
                                        transition.after_state) == RIN_GPU_OK);
     memset(&resolve, 0, sizeof(resolve));
@@ -504,6 +555,20 @@ int main(void)
         CHECK(clear_pixels[pixel] == 0u && clear_pixels[pixel + 1u] == 255u &&
               clear_pixels[pixel + 2u] == 0u && clear_pixels[pixel + 3u] ==
               255u);
+    memset(&depth_readback, 0, sizeof(depth_readback));
+    depth_readback.abi_version = RIN_GPU_ABI_VERSION;
+    depth_readback.struct_size = sizeof(depth_readback);
+    depth_readback.width = 2u;
+    depth_readback.height = 2u;
+    depth_readback.depth = 1u;
+    CHECK(rindx_d3d11_readback_image(&device, depth_image, &depth_readback,
+                                     depth_pixels, sizeof(depth_pixels)) ==
+          RIN_GPU_OK);
+    {
+        float depth_value;
+        memcpy(&depth_value, depth_pixels, sizeof(depth_value));
+        CHECK(depth_value == 0.5f && depth_pixels[4u] == 0x7fu);
+    }
     memset(&mip_readback, 0, sizeof(mip_readback));
     mip_readback.abi_version = RIN_GPU_ABI_VERSION;
     mip_readback.struct_size = sizeof(mip_readback);
@@ -533,6 +598,11 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, clear_target) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, mip_image) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, transfer_buffer_source) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, transfer_buffer_destination) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, depth_image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_device(&device) == RIN_GPU_OK);
     return 0;
