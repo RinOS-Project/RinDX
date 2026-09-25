@@ -209,6 +209,17 @@ int rindx_d3d12_get_device_removed_reason(
                : RIN_GPU_OK;
 }
 
+RinDxgiHresult rindx_d3d12_get_device_removed_reason_hresult(
+    const RinDxD3d12Device* device)
+{
+    int result = rindx_d3d12_get_device_removed_reason(device);
+    if (result == RIN_GPU_ERROR_INVALID_ARGUMENT)
+        return RIN_DXGI_E_INVALIDARG;
+    if (result == RIN_GPU_ERROR_DEVICE_LOST)
+        return RIN_DXGI_ERROR_DEVICE_REMOVED;
+    return result == RIN_GPU_OK ? RIN_DXGI_S_OK : RIN_DXGI_E_FAIL;
+}
+
 int rindx_d3d12_mark_device_removed(RinDxD3d12Device* device)
 {
     if (!device_valid(device)) return RIN_GPU_ERROR_STATE;

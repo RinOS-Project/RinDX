@@ -3,6 +3,7 @@
 #define RINDX_PUBLIC_D3D12_H
 
 #include <ringpu/runtime.h>
+#include <rindx/com.h>
 #include <rindx/swapchain.h>
 
 #include <stdint.h>
@@ -112,6 +113,8 @@ int rindx_d3d12_get_pipeline_cache_policy(
 /* Bounded device-removal propagation from the RinGPU runtime. Native DXGI
  * HRESULT translation and physical reset are separate boundaries. */
 int rindx_d3d12_get_device_removed_reason(
+    const RinDxD3d12Device* device);
+RinDxgiHresult rindx_d3d12_get_device_removed_reason_hresult(
     const RinDxD3d12Device* device);
 int rindx_d3d12_mark_device_removed(RinDxD3d12Device* device);
 int rindx_d3d12_create_command_allocator(
