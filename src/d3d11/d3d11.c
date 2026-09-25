@@ -237,6 +237,28 @@ int rindx_d3d11_create_texture2d(RinDxD3d11Device* device,
     return ringpu_runtime_create_image(device->runtime, descriptor, image_out);
 }
 
+int rindx_d3d11_create_texture1d(RinDxD3d11Device* device,
+                                 const RinGpuImageDescV1* descriptor,
+                                 RinGpuHandle* image_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    if (!descriptor || descriptor->dimension != RIN_GPU_IMAGE_DIMENSION_1D ||
+        descriptor->height != 1u || descriptor->depth != 1u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_create_image(device->runtime, descriptor, image_out);
+}
+
+int rindx_d3d11_create_texture3d(RinDxD3d11Device* device,
+                                 const RinGpuImageDescV1* descriptor,
+                                 RinGpuHandle* image_out)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    if (!descriptor || descriptor->dimension != RIN_GPU_IMAGE_DIMENSION_3D ||
+        descriptor->array_layers != 1u)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    return ringpu_runtime_create_image(device->runtime, descriptor, image_out);
+}
+
 int rindx_d3d11_create_shader(RinDxD3d11Device* device, const void* rin_shader,
                               uint64_t shader_size,
                               RinGpuHandle* shader_out)

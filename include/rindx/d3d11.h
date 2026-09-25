@@ -101,6 +101,12 @@ int rindx_d3d11_create_buffer(RinDxD3d11Device* device,
 int rindx_d3d11_create_texture2d(RinDxD3d11Device* device,
                                  const RinGpuImageDescV1* descriptor,
                                  RinGpuHandle* image_out);
+int rindx_d3d11_create_texture1d(RinDxD3d11Device* device,
+                                 const RinGpuImageDescV1* descriptor,
+                                 RinGpuHandle* image_out);
+int rindx_d3d11_create_texture3d(RinDxD3d11Device* device,
+                                 const RinGpuImageDescV1* descriptor,
+                                 RinGpuHandle* image_out);
 int rindx_d3d11_create_shader(RinDxD3d11Device* device, const void* rin_shader,
                               uint64_t shader_size,
                               RinGpuHandle* shader_out);
