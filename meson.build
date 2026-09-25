@@ -7,6 +7,7 @@ rindx = library('rindx', files(
   'src/dxgi/com.c',
   'src/dxgi/swapchain.c',
   'src/d3d11/d3d11.c',
+  'src/d3d12/d3d12.c',
 ), include_directories: rindx_inc, dependencies: ringpu_dep, install: true)
 rindx_dep = declare_dependency(
   link_with: rindx,
