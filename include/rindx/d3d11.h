@@ -81,6 +81,9 @@ int rindx_d3d11_update_subresource_texture2d(
     RinDxD3d11Device* device, RinGpuHandle image,
     const RinGpuImageUploadV1* upload, const void* source,
     uint64_t source_size);
+int rindx_d3d11_readback_buffer(
+    RinDxD3d11Device* device, RinGpuHandle buffer, uint64_t source_offset,
+    void* destination, uint64_t size_bytes);
 /* Bounded software resource-transfer owner. Native D3D11 COM/view
  * translation remains outside this ABI and is rejected until validated. */
 int rindx_d3d11_copy_buffer(RinDxD3d11Context* context,

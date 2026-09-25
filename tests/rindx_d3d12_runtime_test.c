@@ -188,6 +188,7 @@ int main(void)
     uint8_t pixels[16u] = {0};
     uint8_t copied_pixels[16u] = {0};
     uint8_t clear_pixels[16u] = {0};
+    uint8_t buffer_readback[16u] = {0};
     static const uint8_t transfer_source_pixels[16u] = {
         49u, 48u, 47u, 255u, 59u, 58u, 57u, 255u,
         69u, 68u, 67u, 255u, 79u, 78u, 77u, 255u};
@@ -493,7 +494,15 @@ int main(void)
     for (uint32_t pixel = 0u; pixel < sizeof(clear_pixels); pixel += 4u)
         CHECK(clear_pixels[pixel] == 0u && clear_pixels[pixel + 1u] == 0u &&
               clear_pixels[pixel + 2u] == 255u && clear_pixels[pixel + 3u] ==
-                  255u);
+              255u);
+    CHECK(rindx_d3d12_readback_buffer(&device, transfer_buffer_destination,
+                                      0u, buffer_readback,
+                                      sizeof(buffer_readback)) == RIN_GPU_OK);
+    for (uint32_t offset = 0u; offset < sizeof(buffer_readback); offset += 4u)
+        CHECK(buffer_readback[offset] == 0x04u &&
+              buffer_readback[offset + 1u] == 0x03u &&
+              buffer_readback[offset + 2u] == 0x02u &&
+              buffer_readback[offset + 3u] == 0x01u);
     CHECK(rindx_d3d12_destroy_command_list(&list) == RIN_GPU_OK);
     CHECK(rindx_d3d12_reset_command_allocator(&allocator) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);

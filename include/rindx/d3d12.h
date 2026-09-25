@@ -94,6 +94,9 @@ int rindx_d3d12_upload_buffer(RinDxD3d12Device* device, RinGpuHandle buffer,
 int rindx_d3d12_upload_image(RinDxD3d12Device* device, RinGpuHandle image,
                              const RinGpuImageUploadV1* upload,
                              const void* source, uint64_t source_size);
+int rindx_d3d12_readback_buffer(
+    RinDxD3d12Device* device, RinGpuHandle buffer, uint64_t source_offset,
+    void* destination, uint64_t size_bytes);
 /* Bounded software copy/resolve/clear owner. Explicit RinGPU regions are the
  * validated ABI; arbitrary native D3D12 command-list bytecode is rejected. */
 int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,

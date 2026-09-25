@@ -215,6 +215,7 @@ int main(void)
     uint8_t mip2_pixels[4u] = {0};
     uint8_t mip_readback_pixels[16u] = {0};
     uint8_t depth_pixels[32u] = {0};
+    uint8_t buffer_readback[16u] = {0};
     static const uint8_t transfer_source_pixels[16u] = {
         9u, 8u, 7u, 255u, 19u, 18u, 17u, 255u,
         29u, 28u, 27u, 255u, 39u, 38u, 37u, 255u};
@@ -569,6 +570,14 @@ int main(void)
         memcpy(&depth_value, depth_pixels, sizeof(depth_value));
         CHECK(depth_value == 0.5f && depth_pixels[4u] == 0x7fu);
     }
+    CHECK(rindx_d3d11_readback_buffer(&device, transfer_buffer_destination,
+                                      0u, buffer_readback,
+                                      sizeof(buffer_readback)) == RIN_GPU_OK);
+    for (uint32_t offset = 0u; offset < sizeof(buffer_readback); offset += 4u)
+        CHECK(buffer_readback[offset] == 0x04u &&
+              buffer_readback[offset + 1u] == 0x03u &&
+              buffer_readback[offset + 2u] == 0x02u &&
+              buffer_readback[offset + 3u] == 0x01u);
     memset(&mip_readback, 0, sizeof(mip_readback));
     mip_readback.abi_version = RIN_GPU_ABI_VERSION;
     mip_readback.struct_size = sizeof(mip_readback);

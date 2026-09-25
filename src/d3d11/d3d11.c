@@ -243,6 +243,16 @@ int rindx_d3d11_update_subresource_texture2d(
     return rindx_d3d11_upload_image(device, image, upload, source, source_size);
 }
 
+int rindx_d3d11_readback_buffer(
+    RinDxD3d11Device* device, RinGpuHandle buffer, uint64_t source_offset,
+    void* destination, uint64_t size_bytes)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_readback_buffer(device->runtime, buffer,
+                                          source_offset, destination,
+                                          size_bytes);
+}
+
 static int d3d11_full_copy_region(const RinGpuImageInfoV1* destination,
                                   const RinGpuImageInfoV1* source,
                                   RinGpuImageCopyRegionV1* region)

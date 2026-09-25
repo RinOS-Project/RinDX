@@ -305,6 +305,16 @@ int rindx_d3d12_upload_image(RinDxD3d12Device* device, RinGpuHandle image,
                                        source_size);
 }
 
+int rindx_d3d12_readback_buffer(
+    RinDxD3d12Device* device, RinGpuHandle buffer, uint64_t source_offset,
+    void* destination, uint64_t size_bytes)
+{
+    if (!device_valid(device)) return RIN_GPU_ERROR_STATE;
+    return ringpu_runtime_readback_buffer(device->runtime, buffer,
+                                          source_offset, destination,
+                                          size_bytes);
+}
+
 int rindx_d3d12_copy_buffer(RinDxD3d12CommandList* list,
                             RinGpuHandle destination, uint64_t destination_offset,
                             RinGpuHandle source, uint64_t source_offset,
