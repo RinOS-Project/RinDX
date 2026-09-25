@@ -18,8 +18,8 @@ resolve, clear, and image-upload operations. They require explicit regions and
 RinGPU resource states; native COM command bytecode, Map/Unmap, full
 UpdateSubresource/GenerateMips semantics, and full Windows ABI compatibility
 remain fail-closed boundaries. The host runtime tests cover D3D11 buffer and
-depth/stencil clear, D3D12 buffer clear, image transfer, mip generation, and
-readback in addition to draw/dispatch.
+depth/stencil clear, D3D12 buffer clear, CPU-visible buffer readback, image
+transfer, mip generation, and readback in addition to draw/dispatch.
 
 D3D11 additionally exposes bounded buffer/Texture2D UpdateSubresource and
 GenerateMips. GenerateMips requires a fully upload-ready 2D mip chain and
