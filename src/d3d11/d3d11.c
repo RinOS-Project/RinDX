@@ -4,6 +4,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+static int rin_d3d11_try_lock(volatile uint32_t* value) {
+    return (uint32_t)_InterlockedCompareExchange(
+               (volatile long*)(void*)value, 1L, 0L) == 0u;
+}
+static uint32_t rin_d3d11_exchange_lock(volatile uint32_t* value,
+                                        uint32_t replacement) {
+    return (uint32_t)_InterlockedExchange((volatile long*)(void*)value,
+                                          (long)replacement);
+}
+#else
+static int rin_d3d11_try_lock(volatile uint32_t* value) {
+    uint32_t expected = 0u;
+    return __atomic_compare_exchange_n(value, &expected, 1u, 0,
+                                       __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
+static uint32_t rin_d3d11_exchange_lock(volatile uint32_t* value,
+                                        uint32_t replacement) {
+    return __atomic_exchange_n(value, replacement, __ATOMIC_RELEASE);
+}
+#endif
+
 #define RIN_DX_D3D11_STATE_READY 1u
 #define RIN_DX_D3D11_STATE_CLOSED 2u
 #define RIN_DX_D3D11_DRAW_FLAG_MASK 0u
@@ -231,11 +254,9 @@ int rindx_d3d11_set_multithread_protected(RinDxD3d11Context* context,
 
 int rindx_d3d11_enter_multithread(RinDxD3d11Context* context)
 {
-    uint32_t expected = 0u;
     if (!context_valid(context)) return RIN_GPU_ERROR_STATE;
     if (context->multithread_protected == 0u) return RIN_GPU_OK;
-    if (!__atomic_compare_exchange_n(&context->multithread_lock, &expected, 1u,
-                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+    if (!rin_d3d11_try_lock(&context->multithread_lock))
         return RIN_GPU_ERROR_BUSY;
     return RIN_GPU_OK;
 }
@@ -244,8 +265,7 @@ int rindx_d3d11_leave_multithread(RinDxD3d11Context* context)
 {
     if (!context_valid(context)) return RIN_GPU_ERROR_STATE;
     if (context->multithread_protected == 0u ||
-        __atomic_exchange_n(&context->multithread_lock, 0u,
-                            __ATOMIC_RELEASE) == 0u)
+        rin_d3d11_exchange_lock(&context->multithread_lock, 0u) == 0u)
         return RIN_GPU_ERROR_STATE;
     return RIN_GPU_OK;
 }
@@ -897,8 +917,15 @@ int rindx_d3d11_transition_image(
     uint32_t before_state, uint32_t after_state)
 {
     RinGpuImageTransitionV1 transition;
+    int result;
     if (!context_valid(context) || image == 0u || before_state == after_state)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (context->pending_command_list != 0u) {
+        result = ringpu_runtime_destroy_object(
+            context->device->runtime, context->pending_command_list);
+        if (result != RIN_GPU_OK) return result;
+        context->pending_command_list = 0u;
+    }
     memset(&transition, 0, sizeof(transition));
     transition.abi_version = RIN_GPU_ABI_VERSION;
     transition.struct_size = sizeof(transition);

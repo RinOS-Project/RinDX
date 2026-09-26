@@ -301,6 +301,11 @@ int rin_gpu_dxgi_com_runtime_bind(RinGpuDxgiComRuntime* runtime);
 int rin_gpu_dxgi_com_runtime_unbind(RinGpuDxgiComRuntime* runtime);
 int rin_gpu_dxgi_com_runtime_shutdown(RinGpuDxgiComRuntime* runtime);
 
+/* On Windows the SDK owns these exact symbol declarations.  The RinDX
+ * portable catalog ABI keeps the same entry points on non-Windows hosts;
+ * the native adapter uses the SDK declarations without a conflicting
+ * prototype. */
+#if !defined(_WIN32)
 RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory(const RinDxgiGuid* iid, void** factory_out);
 RinDxgiHresult RIN_DXGI_STDCALL
@@ -308,6 +313,7 @@ CreateDXGIFactory1(const RinDxgiGuid* iid, void** factory_out);
 RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory2(uint32_t flags, const RinDxgiGuid* iid,
                    void** factory_out);
+#endif
 
 #if defined(__cplusplus)
 static_assert(sizeof(RinDxgiGuid) == 16u, "DXGI GUID ABI drift");

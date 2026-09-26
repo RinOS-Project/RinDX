@@ -889,11 +889,14 @@ int rindx_d3d12_execute_command_lists(RinDxD3d12Device* device,
     uint64_t value;
     int result;
     if (!device_valid(device) || !list || list->device != device ||
-        list->state != RIN_DX_D3D12_STATE_READY ||
+        (list->state != RIN_DX_D3D12_STATE_READY &&
+         list->state != RIN_DX_D3D12_STATE_CLOSED) ||
         list->render_pass_active != 0u)
         return RIN_GPU_ERROR_STATE;
-    result = rindx_d3d12_close_command_list(list);
-    if (result != RIN_GPU_OK) return result;
+    if (list->state == RIN_DX_D3D12_STATE_READY) {
+        result = rindx_d3d12_close_command_list(list);
+        if (result != RIN_GPU_OK) return result;
+    }
     value = device->submission_value + 1u;
     memset(&submit, 0, sizeof(submit));
     submit.abi_version = RIN_GPU_ABI_VERSION;

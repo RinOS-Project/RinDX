@@ -8,6 +8,8 @@ rindx = library('rindx', files(
   'src/dxgi/swapchain.c',
   'src/d3d11/d3d11.c',
   'src/d3d12/d3d12.c',
+  host_machine.system() == 'windows' ? 'src/d3d11/native_d3d11.c' : [],
+  host_machine.system() == 'windows' ? 'src/d3d12/native_d3d12.c' : [],
 ), include_directories: rindx_inc, dependencies: ringpu_dep, install: true)
 rindx_dep = declare_dependency(
   link_with: rindx,

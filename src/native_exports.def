@@ -1,0 +1,8 @@
+LIBRARY RinDXNative
+EXPORTS
+    D3D11CreateDevice
+    D3D11CreateDeviceAndSwapChain
+    D3D12CreateDevice
+    CreateDXGIFactory
+    CreateDXGIFactory1
+    CreateDXGIFactory2

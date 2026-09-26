@@ -2,8 +2,88 @@
 #include <rindx/com.h>
 
 #include <limits.h>
-#include <stdatomic.h>
 #include <string.h>
+
+typedef struct RinGpuDxgiComState RinGpuDxgiComState;
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+typedef volatile long RinDxAtomicU32;
+typedef RinGpuDxgiComState* volatile RinDxAtomicStatePtr;
+
+static void rin_atomic_u32_init(RinDxAtomicU32* value, uint32_t initial) {
+    *value = (long)initial;
+}
+static uint32_t rin_atomic_u32_load(const RinDxAtomicU32* value) {
+    return (uint32_t)_InterlockedCompareExchange(
+        (volatile long*)(void*)value, 0L, 0L);
+}
+static void rin_atomic_u32_store(RinDxAtomicU32* value, uint32_t replacement) {
+    (void)_InterlockedExchange(value, (long)replacement);
+}
+static uint32_t rin_atomic_u32_exchange(RinDxAtomicU32* value,
+                                         uint32_t replacement) {
+    return (uint32_t)_InterlockedExchange(value, (long)replacement);
+}
+static int rin_atomic_u32_cas(RinDxAtomicU32* value, uint32_t* expected,
+                              uint32_t replacement) {
+    long previous = _InterlockedCompareExchange(
+        value, (long)replacement, (long)*expected);
+    if ((uint32_t)previous == *expected) return 1;
+    *expected = (uint32_t)previous;
+    return 0;
+}
+static RinGpuDxgiComState* rin_atomic_state_load(
+    const RinDxAtomicStatePtr* value) {
+    return (RinGpuDxgiComState*)_InterlockedCompareExchangePointer(
+        (void* volatile*)(void*)value, NULL, NULL);
+}
+static int rin_atomic_state_cas(RinDxAtomicStatePtr* value,
+                                RinGpuDxgiComState** expected,
+                                RinGpuDxgiComState* replacement) {
+    RinGpuDxgiComState* previous =
+        (RinGpuDxgiComState*)_InterlockedCompareExchangePointer(
+            (void* volatile*)(void*)value, replacement, *expected);
+    if (previous == *expected) return 1;
+    *expected = previous;
+    return 0;
+}
+#else
+#include <stdatomic.h>
+typedef _Atomic uint32_t RinDxAtomicU32;
+typedef _Atomic(RinGpuDxgiComState*) RinDxAtomicStatePtr;
+
+static void rin_atomic_u32_init(RinDxAtomicU32* value, uint32_t initial) {
+    atomic_init(value, initial);
+}
+static uint32_t rin_atomic_u32_load(const RinDxAtomicU32* value) {
+    return atomic_load_explicit(value, memory_order_acquire);
+}
+static void rin_atomic_u32_store(RinDxAtomicU32* value, uint32_t replacement) {
+    atomic_store_explicit(value, replacement, memory_order_release);
+}
+static uint32_t rin_atomic_u32_exchange(RinDxAtomicU32* value,
+                                         uint32_t replacement) {
+    return atomic_exchange_explicit(value, replacement, memory_order_acq_rel);
+}
+static int rin_atomic_u32_cas(RinDxAtomicU32* value, uint32_t* expected,
+                              uint32_t replacement) {
+    return atomic_compare_exchange_weak_explicit(
+        value, expected, replacement, memory_order_acq_rel,
+        memory_order_acquire);
+}
+static RinGpuDxgiComState* rin_atomic_state_load(
+    const RinDxAtomicStatePtr* value) {
+    return atomic_load_explicit(value, memory_order_acquire);
+}
+static int rin_atomic_state_cas(RinDxAtomicStatePtr* value,
+                                RinGpuDxgiComState** expected,
+                                RinGpuDxgiComState* replacement) {
+    return atomic_compare_exchange_strong_explicit(
+        value, expected, replacement, memory_order_acq_rel,
+        memory_order_acquire);
+}
+#endif
 
 #define RIN_DXGI_COM_MAGIC UINT64_C(0x314d4f4349584452)
 #define RIN_DXGI_COM_CALL_CLOSING UINT32_C(0x80000000)
@@ -33,8 +113,6 @@ const RinDxgiGuid RIN_DXGI_IID_IDXGI_FACTORY1 = {
     0x770aae78u, 0xf26fu, 0x4dbau,
     {0xa8u, 0x29u, 0x25u, 0x3cu, 0x83u, 0xd1u, 0xb3u, 0x87u}};
 
-typedef struct RinGpuDxgiComState RinGpuDxgiComState;
-
 typedef struct RinGpuDxgiPrivateData {
     RinDxgiGuid name;
     uint32_t size;
@@ -47,7 +125,7 @@ typedef struct RinGpuDxgiPrivateData {
 typedef struct RinGpuDxgiComFactoryObject {
     RinDxgiFactory1 interface_value;
     RinGpuDxgiComState* state;
-    _Atomic uint32_t references;
+    RinDxAtomicU32 references;
     RinGpuDxgiPrivateData private_data;
     void* window_association;
     uint32_t window_association_flags;
@@ -58,7 +136,7 @@ typedef struct RinGpuDxgiComAdapterObject {
     RinGpuDxgiComState* state;
     RinGpuDxgiHandle handle;
     uint32_t ordinal;
-    _Atomic uint32_t references;
+    RinDxAtomicU32 references;
     RinGpuDxgiPrivateData private_data;
 } RinGpuDxgiComAdapterObject;
 
@@ -68,7 +146,7 @@ typedef struct RinGpuDxgiComOutputObject {
     RinGpuDxgiHandle handle;
     uint32_t parent_ordinal;
     uint32_t ordinal;
-    _Atomic uint32_t references;
+    RinDxAtomicU32 references;
     RinGpuDxgiPrivateData private_data;
 } RinGpuDxgiComOutputObject;
 
@@ -78,8 +156,8 @@ struct RinGpuDxgiComState {
     RinGpuDxgiCatalog* catalog;
     uint64_t catalog_generation;
     uint64_t state_secret;
-    _Atomic uint32_t call_gate;
-    atomic_flag private_data_lock;
+    RinDxAtomicU32 call_gate;
+    RinDxAtomicU32 private_data_lock;
     uint32_t initialized;
     uint32_t adapter_count;
     uint32_t output_count;
@@ -226,7 +304,7 @@ static const RinDxgiOutputVtbl output_vtable = {
     output_get_frame_statistics,
 };
 
-static _Atomic(RinGpuDxgiComState*) bound_state;
+static RinDxAtomicStatePtr bound_state;
 
 _Static_assert(sizeof(RinGpuDxgiComState) <= sizeof(RinGpuDxgiComRuntime),
                "DXGI COM runtime state exceeds public storage");
@@ -256,14 +334,12 @@ static int state_output_alias(const RinGpuDxgiComState* state,
 static int guid_equal(const RinDxgiGuid* left, const RinDxgiGuid* right);
 
 static void private_data_lock(RinGpuDxgiComState* state) {
-    while (atomic_flag_test_and_set_explicit(&state->private_data_lock,
-                                              memory_order_acquire)) {
+    while (rin_atomic_u32_exchange(&state->private_data_lock, 1u) != 0u) {
     }
 }
 
 static void private_data_unlock(RinGpuDxgiComState* state) {
-    atomic_flag_clear_explicit(&state->private_data_lock,
-                               memory_order_release);
+    rin_atomic_u32_store(&state->private_data_lock, 0u);
 }
 
 static int private_interface_valid(const RinDxgiUnknown* value) {
@@ -511,47 +587,42 @@ static int state_shape_valid(const RinGpuDxgiComState* state) {
 static int state_enter(RinGpuDxgiComState* state) {
     uint32_t observed;
     if (!state) return 0;
-    observed = atomic_load_explicit(&state->call_gate, memory_order_acquire);
+    observed = rin_atomic_u32_load(&state->call_gate);
     for (;;) {
         if ((observed & RIN_DXGI_COM_CALL_CLOSING) != 0u ||
             (observed & RIN_DXGI_COM_CALL_COUNT_MASK) ==
                 RIN_DXGI_COM_CALL_COUNT_MASK) {
             return 0;
         }
-        if (atomic_compare_exchange_weak_explicit(
-                &state->call_gate, &observed, observed + 1u,
-                memory_order_acq_rel, memory_order_acquire)) {
+        if (rin_atomic_u32_cas(&state->call_gate, &observed,
+                               observed + 1u)) {
             return 1;
         }
     }
 }
 
 static void state_leave(RinGpuDxgiComState* state) {
-    (void)atomic_fetch_sub_explicit(&state->call_gate, 1u,
-                                    memory_order_release);
+    uint32_t observed = rin_atomic_u32_load(&state->call_gate);
+    while (observed != 0u && !rin_atomic_u32_cas(
+               &state->call_gate, &observed, observed - 1u)) {
+    }
 }
 
-static uint32_t add_reference(_Atomic uint32_t* references) {
-    uint32_t observed =
-        atomic_load_explicit(references, memory_order_relaxed);
+static uint32_t add_reference(RinDxAtomicU32* references) {
+    uint32_t observed = rin_atomic_u32_load(references);
     for (;;) {
         if (observed == UINT32_MAX) return UINT32_MAX;
-        if (atomic_compare_exchange_weak_explicit(
-                references, &observed, observed + 1u, memory_order_acq_rel,
-                memory_order_relaxed)) {
+        if (rin_atomic_u32_cas(references, &observed, observed + 1u)) {
             return observed + 1u;
         }
     }
 }
 
-static uint32_t release_reference(_Atomic uint32_t* references) {
-    uint32_t observed =
-        atomic_load_explicit(references, memory_order_relaxed);
+static uint32_t release_reference(RinDxAtomicU32* references) {
+    uint32_t observed = rin_atomic_u32_load(references);
     for (;;) {
         if (observed == 0u) return 0u;
-        if (atomic_compare_exchange_weak_explicit(
-                references, &observed, observed - 1u, memory_order_acq_rel,
-                memory_order_relaxed)) {
+        if (rin_atomic_u32_cas(references, &observed, observed - 1u)) {
             return observed - 1u;
         }
     }
@@ -1550,11 +1621,11 @@ int rin_gpu_dxgi_com_runtime_init(RinGpuDxgiComRuntime* runtime,
     state->catalog = catalog;
     state->catalog_generation = catalog_generation;
     state->state_secret = state_secret;
-    atomic_init(&state->call_gate, 0u);
-    atomic_flag_clear(&state->private_data_lock);
+    rin_atomic_u32_init(&state->call_gate, 0u);
+    rin_atomic_u32_init(&state->private_data_lock, 0u);
     state->factory.interface_value.vtable = &factory_vtable;
     state->factory.state = state;
-    atomic_init(&state->factory.references, 0u);
+    rin_atomic_u32_init(&state->factory.references, 0u);
     for (adapter = 0u; adapter < RIN_GPU_DXGI_MAX_ADAPTERS; ++adapter) {
         RinGpuDxgiAdapterSnapshotV1 snapshot;
         RinGpuDxgiHandle adapter_handle = 0u;
@@ -1568,7 +1639,7 @@ int rin_gpu_dxgi_com_runtime_init(RinGpuDxgiComRuntime* runtime,
         state->adapters[adapter].state = state;
         state->adapters[adapter].handle = adapter_handle;
         state->adapters[adapter].ordinal = adapter;
-        atomic_init(&state->adapters[adapter].references, 0u);
+        rin_atomic_u32_init(&state->adapters[adapter].references, 0u);
         for (output_ordinal = 0u;
              output_ordinal < RIN_GPU_MAX_DISPLAYS; ++output_ordinal) {
             RinGpuDxgiOutputSnapshotV1 output_snapshot;
@@ -1590,7 +1661,7 @@ int rin_gpu_dxgi_com_runtime_init(RinGpuDxgiComRuntime* runtime,
             output->handle = output_handle;
             output->parent_ordinal = adapter;
             output->ordinal = output_ordinal;
-            atomic_init(&output->references, 0u);
+            rin_atomic_u32_init(&output->references, 0u);
         }
         state->adapter_output_count[adapter] = output_ordinal;
         state->adapter_count++;
@@ -1628,9 +1699,7 @@ int rin_gpu_dxgi_com_runtime_bind(RinGpuDxgiComRuntime* runtime) {
         state_leave(state);
         return result != RIN_GPU_DXGI_OK ? result : RIN_GPU_DXGI_STALE;
     }
-    if (!atomic_compare_exchange_strong_explicit(
-            &bound_state, &expected, state, memory_order_acq_rel,
-            memory_order_acquire)) {
+    if (!rin_atomic_state_cas(&bound_state, &expected, state)) {
         state_leave(state);
         return expected == state ? RIN_GPU_DXGI_STATE : RIN_GPU_DXGI_BUSY;
     }
@@ -1646,9 +1715,7 @@ int rin_gpu_dxgi_com_runtime_unbind(RinGpuDxgiComRuntime* runtime) {
         state_leave(state);
         return RIN_GPU_DXGI_STATE;
     }
-    if (!atomic_compare_exchange_strong_explicit(
-            &bound_state, &expected, NULL, memory_order_acq_rel,
-            memory_order_acquire)) {
+    if (!rin_atomic_state_cas(&bound_state, &expected, NULL)) {
         state_leave(state);
         return RIN_GPU_DXGI_STATE;
     }
@@ -1661,35 +1728,29 @@ int rin_gpu_dxgi_com_runtime_shutdown(RinGpuDxgiComRuntime* runtime) {
     uint32_t expected = 0u;
     uint32_t index;
     if (!state) return RIN_GPU_DXGI_INVALID_ARGUMENT;
-    if (!atomic_compare_exchange_strong_explicit(
-            &state->call_gate, &expected, RIN_DXGI_COM_CALL_CLOSING,
-            memory_order_acq_rel, memory_order_acquire)) {
+    if (!rin_atomic_u32_cas(&state->call_gate, &expected,
+                            RIN_DXGI_COM_CALL_CLOSING)) {
         return RIN_GPU_DXGI_BUSY;
     }
     if (!state_shape_valid(state) ||
-        atomic_load_explicit(&bound_state, memory_order_acquire) == state) {
-        atomic_store_explicit(&state->call_gate, 0u, memory_order_release);
+        rin_atomic_state_load(&bound_state) == state) {
+        rin_atomic_u32_store(&state->call_gate, 0u);
         return state_shape_valid(state) ? RIN_GPU_DXGI_BUSY
                                         : RIN_GPU_DXGI_STATE;
     }
-    if (atomic_load_explicit(&state->factory.references,
-                             memory_order_acquire) != 0u) {
-        atomic_store_explicit(&state->call_gate, 0u, memory_order_release);
+    if (rin_atomic_u32_load(&state->factory.references) != 0u) {
+        rin_atomic_u32_store(&state->call_gate, 0u);
         return RIN_GPU_DXGI_BUSY;
     }
     for (index = 0u; index < state->adapter_count; ++index) {
-        if (atomic_load_explicit(&state->adapters[index].references,
-                                 memory_order_acquire) != 0u) {
-            atomic_store_explicit(&state->call_gate, 0u,
-                                  memory_order_release);
+        if (rin_atomic_u32_load(&state->adapters[index].references) != 0u) {
+            rin_atomic_u32_store(&state->call_gate, 0u);
             return RIN_GPU_DXGI_BUSY;
         }
     }
     for (index = 0u; index < state->output_count; ++index) {
-        if (atomic_load_explicit(&state->outputs[index].references,
-                                 memory_order_acquire) != 0u) {
-            atomic_store_explicit(&state->call_gate, 0u,
-                                  memory_order_release);
+        if (rin_atomic_u32_load(&state->outputs[index].references) != 0u) {
+            rin_atomic_u32_store(&state->call_gate, 0u);
             return RIN_GPU_DXGI_BUSY;
         }
     }
@@ -1704,12 +1765,18 @@ int rin_gpu_dxgi_com_runtime_shutdown(RinGpuDxgiComRuntime* runtime) {
     return RIN_GPU_DXGI_OK;
 }
 
+#if defined(_WIN32)
+extern int32_t rindx_native_dxgi_create_factory(const void* iid, void** out);
+extern int32_t rindx_native_dxgi_create_factory2(uint32_t flags, const void* iid,
+                                                 void** out);
+#endif
+
 static RinDxgiHresult create_factory_common(const RinDxgiGuid* iid,
                                             void** factory_out) {
     RinGpuDxgiComState* state;
     RinDxgiHresult result;
     if (!factory_out) return RIN_DXGI_E_POINTER;
-    state = atomic_load_explicit(&bound_state, memory_order_acquire);
+    state = rin_atomic_state_load(&bound_state);
     if (state && state_output_alias(state, factory_out,
                                     sizeof(*factory_out))) {
         return RIN_DXGI_ERROR_INVALID_CALL;
@@ -1727,22 +1794,40 @@ static RinDxgiHresult create_factory_common(const RinDxgiGuid* iid,
     return result;
 }
 
-RinDxgiHresult RIN_DXGI_STDCALL
+#if defined(_WIN32) && defined(RINDX_BUILD_DLL)
+#define RINDX_DXGI_NATIVE_EXPORT __declspec(dllexport)
+#else
+#define RINDX_DXGI_NATIVE_EXPORT
+#endif
+
+RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory(const RinDxgiGuid* iid, void** factory_out) {
+#if defined(_WIN32)
+    return (RinDxgiHresult)rindx_native_dxgi_create_factory(iid, factory_out);
+#else
     return create_factory_common(iid, factory_out);
+#endif
 }
 
-RinDxgiHresult RIN_DXGI_STDCALL
+RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory1(const RinDxgiGuid* iid, void** factory_out) {
+#if defined(_WIN32)
+    return (RinDxgiHresult)rindx_native_dxgi_create_factory(iid, factory_out);
+#else
     return create_factory_common(iid, factory_out);
+#endif
 }
 
-RinDxgiHresult RIN_DXGI_STDCALL
+RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory2(uint32_t flags, const RinDxgiGuid* iid,
                    void** factory_out) {
+#if defined(_WIN32)
+    return (RinDxgiHresult)rindx_native_dxgi_create_factory2(flags, iid,
+                                                              factory_out);
+#else
     RinGpuDxgiComState* state;
     if (!factory_out) return RIN_DXGI_E_POINTER;
-    state = atomic_load_explicit(&bound_state, memory_order_acquire);
+    state = rin_atomic_state_load(&bound_state);
     if (state && state_output_alias(state, factory_out,
                                     sizeof(*factory_out))) {
         return RIN_DXGI_ERROR_INVALID_CALL;
@@ -1750,4 +1835,5 @@ CreateDXGIFactory2(uint32_t flags, const RinDxgiGuid* iid,
     *factory_out = NULL;
     if (flags != 0u) return RIN_DXGI_ERROR_UNSUPPORTED;
     return create_factory_common(iid, factory_out);
+#endif
 }

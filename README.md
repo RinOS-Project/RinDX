@@ -1,11 +1,12 @@
 # RinDX
 
-RinDX owns the DXGI COM ABI, factory/adapter/output catalog, private-data
-runtime, presentation-backed swapchain, and bounded D3D11/D3D12 software
-owners in `include/rindx/d3d11.h` and `include/rindx/d3d12.h`. These owners
-execute validated RinGPU/RSH1 workloads through explicit host contracts; they
-do not claim Windows DLL/COM binary compatibility or accept unchecked
-DXBC/DXIL.
+RinDX owns the DXGI COM ABI, factory/adapter catalog, private-data runtime,
+presentation-backed swapchain, and bounded D3D11/D3D12 software owners in
+`include/rindx/d3d11.h` and `include/rindx/d3d12.h`. On Windows,
+`RinDXNative.dll` exports the host software `D3D11Create*`, `D3D12CreateDevice`,
+and `CreateDXGIFactory*` entry points. The native COM objects lower accepted
+resource, command, fence, descriptor, PSO, queue, back-buffer, Present, and
+ResizeBuffers operations to validated RinGPU/RSH1 execution.
 
 Physical enumeration is supplied by the OS-Core adapter in
 `src/drivers/gpu/rin_gpu_dxgi_catalog_platform.c`. D3D11/D3D12/DXGI DLL export
@@ -13,16 +14,12 @@ resolution is an explicit `RinDxProviderV1` boundary; RinNT owns policy and
 does not embed a DXGI implementation. Physical GPU drivers, IRQ/DMA, external
 backends, and hardware evidence remain outside this software split.
 
-The bounded D3D11/D3D12 owners also expose validated RinGPU sampler creation,
-buffer/image copy,
-resolve, clear, and image-upload operations. They require explicit regions and
-RinGPU resource states; native COM command bytecode, Map/Unmap, full
-UpdateSubresource/GenerateMips semantics, and full Windows ABI compatibility
-remain fail-closed boundaries. Invalid sampler descriptors are rejected by the
-RinGPU validation/backend path. The host runtime tests cover D3D11 buffer and
-depth/stencil clear, D3D12 buffer clear, CPU-visible buffer readback, image
-transfer, mip generation, and readback in addition to draw/dispatch and the
-validated viewport/scissor raster state.
+The native entry points are a host software ABI profile, not a claim that an
+unmodified Windows application has full driver-level compatibility. DXBC/DXIL
+and root-signature translation, physical adapter/driver execution, IRQ/DMA,
+external backends, and OS display-plane ownership remain separate boundaries.
+Unsupported native shapes are rejected before publication or submission;
+accepted paths execute real RinGPU data and completion operations.
 
 D3D11 additionally exposes bounded buffer/Texture2D UpdateSubresource and
 GenerateMips. GenerateMips requires a fully upload-ready 2D mip chain and
@@ -58,7 +55,8 @@ cmake --build build
 | --- | --- |
 | Purpose | DXGI COM-shaped API, adapter/output catalog, provider seam, and presentation-backed swapchain for RinOS. |
 | Supported API | Public headers: include/rindx/com.h, catalog.h, display_topology.h, provider.h, swapchain.h, d3d11.h, and d3d12.h. |
-| Unsupported API | Not a complete Windows DXGI/D3D binary runtime. Full D3D11/D3D12 COM/DLL, DXBC/DXIL/root-signature translation, physical enumeration, drivers, IRQ/DMA, and external backends remain separate boundaries. |
+| Supported Windows profile | `RinDXNative.dll` exports D3D11/D3D12/DXGI creation and implements the tested host software COM profile, including native resource/view objects, command recording, queue/fence completion, PSO creation, DXGI factory/adapter private data, D3D11 and D3D12 swapchain buffers, Present, readback, GDI output, and ResizeBuffers. |
+| Remaining boundary | Full Windows driver compatibility and every optional COM method, DXBC/DXIL/root-signature translation, physical enumeration/driver execution, IRQ/DMA, and external backends remain separate boundaries. |
 | ownership | Caller owns buffers; returned COM-shaped interfaces follow their vtable AddRef/Release rules. Handles are not device addresses. |
 | thread-safety | Synchronize shared mutable provider, catalog, and swapchain objects unless their interface states otherwise. |
 | limits | Catalog capacity, record sizes, and swapchain bounds are defined by the public headers; provider features are explicit. |
@@ -66,4 +64,4 @@ cmake --build build
 | ABI stability | COM vtable order and versioned provider records are ABI. No full Windows binary compatibility is promised. |
 | security | Public code has no private kernel dependency. Physical operations require the OS-Core provider boundary. |
 | build | Standalone CMake target RinDX::RinDX; see the CMake command above and public RinGPU dependency. |
-| test | Run registered CTest/Meson targets. The bounded D3D11 and D3D12 owners are covered by `rindx-d3d11-runtime-test` and `rindx-d3d12-runtime-test`; physical and Windows loader evidence remains separate. |
+| test | Run registered CTest/Meson targets. Native MSVC coverage is `rindx-native-d3d-runtime`; portable owner coverage is `rindx-d3d11-runtime-test` and `rindx-d3d12-runtime-test`. Physical/QEMU/CTS/soak evidence remains separate. |

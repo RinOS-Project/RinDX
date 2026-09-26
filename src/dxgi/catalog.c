@@ -5,6 +5,29 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+static uint32_t rin_dxgi_catalog_exchange_lock(volatile uint32_t* value,
+                                               uint32_t replacement) {
+    return (uint32_t)_InterlockedExchange((volatile long*)(void*)value,
+                                           (long)replacement);
+}
+static void rin_dxgi_catalog_store_lock(volatile uint32_t* value,
+                                        uint32_t replacement) {
+    (void)_InterlockedExchange((volatile long*)(void*)value,
+                                (long)replacement);
+}
+#else
+static uint32_t rin_dxgi_catalog_exchange_lock(volatile uint32_t* value,
+                                               uint32_t replacement) {
+    return __atomic_exchange_n(value, replacement, __ATOMIC_ACQUIRE);
+}
+static void rin_dxgi_catalog_store_lock(volatile uint32_t* value,
+                                        uint32_t replacement) {
+    __atomic_store_n(value, replacement, __ATOMIC_RELEASE);
+}
+#endif
+
 #define RIN_GPU_DXGI_CATALOG_MAGIC UINT64_C(0x5247445843415431)
 
 typedef struct RinGpuDxgiCatalogState {
@@ -72,12 +95,12 @@ static int catalog_lock(RinGpuDxgiCatalog* catalog,
     state = catalog_state(catalog);
     if (state->magic != RIN_GPU_DXGI_CATALOG_MAGIC)
         return RIN_GPU_DXGI_STATE;
-    if (__atomic_exchange_n(&state->api_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+    if (rin_dxgi_catalog_exchange_lock(&state->api_lock, 1u) != 0u)
         return RIN_GPU_DXGI_BUSY;
     if (state->magic != RIN_GPU_DXGI_CATALOG_MAGIC ||
         state->reserved != 0u || state->guard_hash != catalog_hash(state)) {
         state->magic = 0u;
-        __atomic_store_n(&state->api_lock, 0u, __ATOMIC_RELEASE);
+        rin_dxgi_catalog_store_lock(&state->api_lock, 0u);
         return RIN_GPU_DXGI_STATE;
     }
     *state_out = state;
@@ -85,7 +108,7 @@ static int catalog_lock(RinGpuDxgiCatalog* catalog,
 }
 
 static void catalog_unlock(RinGpuDxgiCatalogState* state) {
-    __atomic_store_n(&state->api_lock, 0u, __ATOMIC_RELEASE);
+    rin_dxgi_catalog_store_lock(&state->api_lock, 0u);
 }
 
 static uint64_t catalog_mix64(uint64_t value) {
