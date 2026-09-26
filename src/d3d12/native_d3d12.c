@@ -1000,7 +1000,7 @@ static int native_surface_acquire(void* context,
     return RIN_GPU_OK;
 }
 
-static void native_surface_init(RinGpuRuntimeSoftwareSurfaceDescV1* surface) {
+static void native_surface_init(RinGpuRuntimeDescV1* surface) {
     memset(surface, 0, sizeof(*surface));
     surface->struct_size = sizeof(*surface);
     surface->version = RIN_GPU_RUNTIME_VERSION;
@@ -2970,7 +2970,7 @@ static ID3D12DeviceVtbl native_vtable = {
 
 RINDX_NATIVE_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown* adapter, D3D_FEATURE_LEVEL minimum_level,
                                  REFIID iid, void** device_out) {
-    RinGpuRuntimeSoftwareSurfaceDescV1 surface;
+    RinGpuRuntimeDescV1 surface;
     const uint32_t level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
     NativeD3d12Device* device;
     int result;

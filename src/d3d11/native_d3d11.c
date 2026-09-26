@@ -843,7 +843,7 @@ static int native_surface_acquire(void* context,
     return RIN_GPU_OK;
 }
 
-static void native_surface_init(RinGpuRuntimeSoftwareSurfaceDescV1* surface) {
+static void native_surface_init(RinGpuRuntimeDescV1* surface) {
     memset(surface, 0, sizeof(*surface));
     surface->struct_size = sizeof(*surface);
     surface->version = RIN_GPU_RUNTIME_VERSION;
@@ -3291,7 +3291,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDevice(
     UINT flags, const D3D_FEATURE_LEVEL* feature_levels, UINT feature_count,
     UINT sdk_version, ID3D11Device** device_out,
     D3D_FEATURE_LEVEL* feature_level_out, ID3D11DeviceContext** context_out) {
-    RinGpuRuntimeSoftwareSurfaceDescV1 surface;
+    RinGpuRuntimeDescV1 surface;
     const uint32_t level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
     NativeD3d11Device* device;
     int result;

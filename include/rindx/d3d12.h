@@ -77,19 +77,20 @@ typedef struct RinDxD3d12CommandList {
     uint32_t state;
 } RinDxD3d12CommandList;
 
-/* Explicit host software D3D12 contract. The queue, allocator/list, resource
- * state transition, descriptor bind group, pipeline, draw/dispatch, fence and
+/* Bounded D3D12 contract. The queue, allocator/list, resource state
+ * transition, descriptor bind group, pipeline, draw/dispatch, fence and
  * readback calls all lower to RinGPU operations. Native D3D12 COM/DLL and
- * DXIL/root-signature translation must validate and lower into this owner. */
+ * DXIL/root-signature translation must validate and lower into this owner;
+ * the descriptor may select the reference or an admitted physical backend. */
 int rindx_d3d12_create_device(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out);
 /* Bounded host CreateDeviceAndSwapChain sequencing. The swapchain remains the
  * existing versioned RinDX presentation owner; native HWND/COM back-buffer
  * identity is not inferred from this entry point. */
 int rindx_d3d12_create_device_and_swapchain(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     const RinGpuDxgiSwapchainDescV1* swapchain_desc,
     const RinGpuDxgiWindowOwnerV1* window_owner,

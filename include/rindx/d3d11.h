@@ -75,19 +75,20 @@ typedef struct RinDxD3d11MappedResource {
     uint32_t flags;
 } RinDxD3d11MappedResource;
 
-/* This is the RinOS D3D11 software execution contract. It deliberately uses
- * RinGPU's versioned resources and RSH1 modules rather than accepting an
- * unchecked DXBC/DXIL pointer. A Windows COM/DLL adapter must validate its
- * native ABI and lower into this contract before calling it. */
+/* This is the RinOS D3D11 execution contract. It deliberately uses RinGPU's
+ * versioned resources and RSH1 modules rather than accepting an unchecked
+ * DXBC/DXIL pointer. A host caller may select the explicit reference backend;
+ * a physical owner passes its admitted backend operation table through the
+ * same descriptor. No backend is substituted by this API. */
 int rindx_d3d11_create_device(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d11Device* device_out);
 /* Bounded host CreateDeviceAndSwapChain sequencing. The swapchain remains the
  * existing versioned RinDX presentation owner; native HWND/COM back-buffer
  * identity is not inferred from this entry point. */
 int rindx_d3d11_create_device_and_swapchain(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     const RinGpuDxgiSwapchainDescV1* swapchain_desc,
     const RinGpuDxgiWindowOwnerV1* window_owner,

@@ -69,17 +69,16 @@ static int create_queue_and_fence(RinDxD3d12Device* device)
 }
 
 int rindx_d3d12_create_device(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out)
 {
     int result;
-    if (!surface || !device_out || !feature_level_requested(
+    if (!desc || !device_out || !feature_level_requested(
             requested_feature_levels, feature_level_count))
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
     memset(device_out, 0, sizeof(*device_out));
-    result = ringpu_runtime_software_surface_create(surface,
-                                                    &device_out->runtime);
+    result = ringpu_runtime_create(desc, &device_out->runtime);
     if (result != RIN_GPU_OK) return result;
     result = create_queue_and_fence(device_out);
     if (result != RIN_GPU_OK) {
@@ -114,7 +113,7 @@ int rindx_d3d12_destroy_device(RinDxD3d12Device* device)
 }
 
 int rindx_d3d12_create_device_and_swapchain(
-    const RinGpuRuntimeSoftwareSurfaceDescV1* surface,
+    const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     const RinGpuDxgiSwapchainDescV1* swapchain_desc,
     const RinGpuDxgiWindowOwnerV1* window_owner,
@@ -124,11 +123,11 @@ int rindx_d3d12_create_device_and_swapchain(
 {
     int result;
     int swapchain_result;
-    if (!surface || !swapchain_desc || !window_owner ||
+    if (!desc || !swapchain_desc || !window_owner ||
         !presentation_backend || !device_out || !swapchain_out)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
     memset(swapchain_out, 0, sizeof(*swapchain_out));
-    result = rindx_d3d12_create_device(surface, requested_feature_levels,
+    result = rindx_d3d12_create_device(desc, requested_feature_levels,
                                        feature_level_count, device_out);
     if (result != RIN_GPU_OK) return result;
     swapchain_result = rin_gpu_dxgi_swapchain_runtime_init(
