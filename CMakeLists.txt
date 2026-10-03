@@ -77,6 +77,10 @@ if(BUILD_TESTING)
         tests/rindx_d3d12_runtime_test.c)
     target_link_libraries(rindx-d3d12-runtime-test PRIVATE RinDX::RinDX)
     add_test(NAME rindx-d3d12-runtime COMMAND rindx-d3d12-runtime-test)
+    add_executable(rindx-d3d12-failure-test
+        tests/rindx_d3d12_failure_test.c)
+    target_link_libraries(rindx-d3d12-failure-test PRIVATE RinDX::RinDX)
+    add_test(NAME rindx-d3d12-failure COMMAND rindx-d3d12-failure-test)
     if(WIN32)
         add_executable(rindx-native-d3d-runtime-test
             tests/rindx_native_d3d_runtime_test.c)
