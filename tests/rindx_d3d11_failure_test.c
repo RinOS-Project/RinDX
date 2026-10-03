@@ -18,6 +18,10 @@ static const RinGpuBackendOpsV1* delegated_ops;
 static uint32_t create_calls;
 static uint32_t delegated_create_calls;
 static uint32_t fail_next_create;
+static uint32_t submit_calls;
+static uint32_t fail_next_submit;
+static uint32_t wait_calls;
+static uint32_t fail_next_wait;
 
 static int injected_create_buffer(void* context,
                                  const RinGpuBufferDescV1* desc,
@@ -35,6 +39,32 @@ static int injected_create_buffer(void* context,
     result = delegated_ops->create_buffer(context, desc, cookie);
     if (result == RIN_GPU_OK) ++delegated_create_calls;
     return result;
+}
+
+static int injected_submit(void* context,
+                           const RinGpuBackendCommandV1* commands,
+                           uint32_t command_count)
+{
+    if (!context || !delegated_ops || !delegated_ops->submit_commands)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++submit_calls;
+    if (fail_next_submit != 0u) {
+        --fail_next_submit;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return delegated_ops->submit_commands(context, commands, command_count);
+}
+
+static int injected_wait(void* context, uint64_t timeout_ns)
+{
+    if (!context || !delegated_ops || !delegated_ops->wait_for_completion)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++wait_calls;
+    if (fail_next_wait != 0u) {
+        --fail_next_wait;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return delegated_ops->wait_for_completion(context, timeout_ns);
 }
 
 static void make_runtime_desc(RinGpuRuntimeDescV1* desc,
@@ -72,8 +102,12 @@ int main(void)
     RinGpuBackendOpsV1 ops;
     RinGpuRuntimeDescV1 runtime_desc;
     RinDxD3d11Device device;
+    RinDxD3d11Context immediate_context;
+    RinDxD3d11Context deferred_context;
     RinGpuBufferDescV1 buffer_desc;
     RinGpuHandle buffer = UINT64_C(0xdeadbeef);
+    RinGpuHandle command_list = 0u;
+    uint64_t fence_value = UINT64_MAX;
     const uint32_t feature_level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
 
     memset(&backend_desc, 0, sizeof(backend_desc));
@@ -86,9 +120,13 @@ int main(void)
                                          &backend) == RIN_GPU_OK);
 
     delegated_ops = ringpu_software_backend_ops();
-    CHECK(delegated_ops != NULL && delegated_ops->create_buffer != NULL);
+    CHECK(delegated_ops != NULL && delegated_ops->create_buffer != NULL &&
+          delegated_ops->submit_commands != NULL &&
+          delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
     ops.create_buffer = injected_create_buffer;
+    ops.submit_commands = injected_submit;
+    ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
 
     CHECK(rindx_d3d11_create_device(&runtime_desc, &feature_level, 1u,
@@ -114,6 +152,35 @@ int main(void)
     CHECK(buffer != 0u && create_calls == 2u &&
           delegated_create_calls == 1u);
     CHECK(rindx_d3d11_destroy_object(&device, buffer) == RIN_GPU_OK);
+
+    CHECK(rindx_d3d11_create_context(&device, &immediate_context) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_create_deferred_context(&device, &deferred_context) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d11_finish_command_list(&deferred_context, &command_list) ==
+          RIN_GPU_OK);
+    CHECK(command_list != 0u);
+    fail_next_submit = 1u;
+    submit_calls = 0u;
+    CHECK(rindx_d3d11_execute_command_list(&immediate_context, command_list,
+                                           0u, &fence_value) ==
+          RIN_GPU_ERROR_BACKEND);
+    CHECK(fence_value == 0u && device.submission_value == 0u &&
+          submit_calls == 1u);
+    CHECK(rindx_d3d11_execute_command_list(&immediate_context, command_list,
+                                           0u, &fence_value) == RIN_GPU_OK);
+    CHECK(fence_value == 1u && device.submission_value == 1u &&
+          submit_calls == 2u);
+
+    fail_next_wait = 1u;
+    wait_calls = 0u;
+    CHECK(rindx_d3d11_wait(&device, fence_value, UINT64_MAX) ==
+          RIN_GPU_ERROR_BACKEND);
+    CHECK(rindx_d3d11_wait(&device, fence_value, UINT64_MAX) == RIN_GPU_OK);
+    CHECK(wait_calls == 2u);
+
+    CHECK(rindx_d3d11_destroy_context(&immediate_context) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_context(&deferred_context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_device(&device) == RIN_GPU_OK);
     ringpu_software_backend_destroy(backend);
     return 0;
