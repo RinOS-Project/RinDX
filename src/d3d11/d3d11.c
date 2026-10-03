@@ -64,13 +64,23 @@ static int feature_level_requested(const uint32_t* levels, uint32_t count)
 static int create_command_list(RinDxD3d11Context* context,
                                RinGpuHandle* command_list_out)
 {
+    RinGpuAdapterInfoV1 adapter;
     RinGpuCommandListDescV1 descriptor;
+    int result;
     if (!context || !command_list_out) return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&adapter, 0, sizeof(adapter));
+    adapter.abi_version = RIN_GPU_ABI_VERSION;
+    adapter.struct_size = sizeof(adapter);
+    result = ringpu_runtime_get_adapter_info(context->device->runtime,
+                                             &adapter);
+    if (result != RIN_GPU_OK) return result;
     memset(&descriptor, 0, sizeof(descriptor));
     descriptor.abi_version = RIN_GPU_ABI_VERSION;
     descriptor.struct_size = sizeof(descriptor);
     descriptor.capabilities = RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
                               RIN_GPU_QUEUE_GRAPHICS;
+    if ((adapter.queue_capabilities & RIN_GPU_QUEUE_PRESENT) != 0u)
+        descriptor.capabilities |= RIN_GPU_QUEUE_PRESENT;
     return ringpu_runtime_create_command_list(context->device->runtime,
                                               &descriptor,
                                               command_list_out);
@@ -94,6 +104,8 @@ int rindx_d3d11_create_device(
     queue_desc.struct_size = sizeof(queue_desc);
     queue_desc.capabilities = RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
                               RIN_GPU_QUEUE_GRAPHICS;
+    if ((desc->adapter.queue_capabilities & RIN_GPU_QUEUE_PRESENT) != 0u)
+        queue_desc.capabilities |= RIN_GPU_QUEUE_PRESENT;
     result = ringpu_runtime_create_queue(device_out->runtime, &queue_desc,
                                          &device_out->queue);
     if (result != RIN_GPU_OK) goto fail_runtime;

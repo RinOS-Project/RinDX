@@ -240,7 +240,8 @@ static void make_surface(RinGpuRuntimeSoftwareSurfaceDescV1* surface)
     surface->adapter.struct_size = sizeof(surface->adapter);
     surface->adapter.queue_capabilities = RIN_GPU_QUEUE_COPY |
                                           RIN_GPU_QUEUE_COMPUTE |
-                                          RIN_GPU_QUEUE_GRAPHICS;
+                                          RIN_GPU_QUEUE_GRAPHICS |
+                                          RIN_GPU_QUEUE_PRESENT;
     memcpy(surface->adapter.name, "rindx-d3d11", 12u);
     surface->display.abi_version = RIN_GPU_ABI_VERSION;
     surface->display.struct_size = sizeof(surface->display);
@@ -401,7 +402,7 @@ int main(void)
     CHECK(rindx_d3d11_get_adapter_info(&device, &adapter_info) == RIN_GPU_OK);
     CHECK(adapter_info.queue_capabilities ==
           (RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
-           RIN_GPU_QUEUE_GRAPHICS));
+           RIN_GPU_QUEUE_GRAPHICS | RIN_GPU_QUEUE_PRESENT));
     memset(&swapchain_output, 0, sizeof(swapchain_output));
     swapchain_output.struct_size = sizeof(swapchain_output);
     swapchain_output.version = RIN_GPU_PRESENTATION_VERSION;
@@ -989,10 +990,15 @@ int main(void)
     CHECK(rin_gpu_dxgi_swapchain_bind_buffer(
               &swapchain_runtime, swapchain_submit_desc.image_token,
               present_target) == RIN_GPU_DXGI_SWAPCHAIN_OK);
-    CHECK(rindx_d3d11_present_to_swapchain(
-              &context, &swapchain_runtime, present_target,
-              &swapchain_submit_desc, RIN_GPU_TIMEOUT_INFINITE, &fence_value,
-              &presentation_fence_value) == RIN_GPU_OK);
+    {
+        int present_result = rindx_d3d11_present_to_swapchain(
+            &context, &swapchain_runtime, present_target,
+            &swapchain_submit_desc, RIN_GPU_TIMEOUT_INFINITE, &fence_value,
+            &presentation_fence_value);
+        if (present_result != RIN_GPU_OK)
+            fprintf(stderr, "D3D11 present result: %d\n", present_result);
+        CHECK(present_result == RIN_GPU_OK);
+    }
     CHECK(fence_value != 0u && presentation_fence_value != 0u);
     CHECK(present_capture.calls == 1u);
     memset(&swapchain_completion, 0, sizeof(swapchain_completion));

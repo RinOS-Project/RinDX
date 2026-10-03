@@ -860,7 +860,8 @@ static void native_surface_init(RinGpuRuntimeDescV1* surface) {
     surface->adapter.struct_size = sizeof(surface->adapter);
     surface->adapter.queue_capabilities = RIN_GPU_QUEUE_COPY |
                                            RIN_GPU_QUEUE_COMPUTE |
-                                           RIN_GPU_QUEUE_GRAPHICS;
+                                           RIN_GPU_QUEUE_GRAPHICS |
+                                           RIN_GPU_QUEUE_PRESENT;
     memcpy(surface->adapter.name, "RinDX Windows software", 22u);
     surface->display.abi_version = RIN_GPU_ABI_VERSION;
     surface->display.struct_size = sizeof(surface->display);

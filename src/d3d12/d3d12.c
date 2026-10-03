@@ -48,7 +48,8 @@ static int feature_level_requested(const uint32_t* levels, uint32_t count)
     return 0;
 }
 
-static int create_queue_and_fence(RinDxD3d12Device* device)
+static int create_queue_and_fence(RinDxD3d12Device* device,
+                                  uint32_t adapter_queue_capabilities)
 {
     RinGpuQueueDescV1 queue_desc;
     int result;
@@ -57,6 +58,8 @@ static int create_queue_and_fence(RinDxD3d12Device* device)
     queue_desc.struct_size = sizeof(queue_desc);
     queue_desc.capabilities = RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
                               RIN_GPU_QUEUE_GRAPHICS;
+    if ((adapter_queue_capabilities & RIN_GPU_QUEUE_PRESENT) != 0u)
+        queue_desc.capabilities |= RIN_GPU_QUEUE_PRESENT;
     result = ringpu_runtime_create_queue(device->runtime, &queue_desc,
                                          &device->queue);
     if (result != RIN_GPU_OK) return result;
@@ -80,7 +83,8 @@ int rindx_d3d12_create_device(
     memset(device_out, 0, sizeof(*device_out));
     result = ringpu_runtime_create(desc, &device_out->runtime);
     if (result != RIN_GPU_OK) return result;
-    result = create_queue_and_fence(device_out);
+    result = create_queue_and_fence(device_out,
+                                    desc->adapter.queue_capabilities);
     if (result != RIN_GPU_OK) {
         ringpu_runtime_destroy(device_out->runtime);
         memset(device_out, 0, sizeof(*device_out));
@@ -280,17 +284,25 @@ int rindx_d3d12_create_command_list(
     RinDxD3d12Device* device, RinDxD3d12CommandAllocator* allocator,
     RinDxD3d12CommandList* list_out)
 {
+    RinGpuAdapterInfoV1 adapter;
     RinGpuCommandListDescV1 descriptor;
     int result;
     if (!device_valid(device) || !allocator_valid(allocator) ||
         allocator->device != device || !list_out ||
         allocator->recording_lists != 0u)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    memset(&adapter, 0, sizeof(adapter));
+    adapter.abi_version = RIN_GPU_ABI_VERSION;
+    adapter.struct_size = sizeof(adapter);
+    result = ringpu_runtime_get_adapter_info(device->runtime, &adapter);
+    if (result != RIN_GPU_OK) return result;
     memset(&descriptor, 0, sizeof(descriptor));
     descriptor.abi_version = RIN_GPU_ABI_VERSION;
     descriptor.struct_size = sizeof(descriptor);
     descriptor.capabilities = RIN_GPU_QUEUE_COPY | RIN_GPU_QUEUE_COMPUTE |
                               RIN_GPU_QUEUE_GRAPHICS;
+    if ((adapter.queue_capabilities & RIN_GPU_QUEUE_PRESENT) != 0u)
+        descriptor.capabilities |= RIN_GPU_QUEUE_PRESENT;
     memset(list_out, 0, sizeof(*list_out));
     result = ringpu_runtime_create_command_list(device->runtime, &descriptor,
                                                 &list_out->command_list);
