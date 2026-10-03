@@ -17,6 +17,8 @@
 static const RinGpuBackendOpsV1* delegated_ops;
 static uint32_t submit_calls;
 static uint32_t fail_next_submit;
+static uint32_t wait_calls;
+static uint32_t fail_next_wait;
 
 static int injected_submit(void* context,
                            const RinGpuBackendCommandV1* commands,
@@ -30,6 +32,18 @@ static int injected_submit(void* context,
         return RIN_GPU_ERROR_BACKEND;
     }
     return delegated_ops->submit_commands(context, commands, command_count);
+}
+
+static int injected_wait(void* context, uint64_t timeout_ns)
+{
+    if (!context || !delegated_ops || !delegated_ops->wait_for_completion)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++wait_calls;
+    if (fail_next_wait != 0u) {
+        --fail_next_wait;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return delegated_ops->wait_for_completion(context, timeout_ns);
 }
 
 static void make_runtime_desc(RinGpuRuntimeDescV1* desc,
@@ -85,8 +99,10 @@ int main(void)
 
     delegated_ops = ringpu_software_backend_ops();
     CHECK(delegated_ops != NULL && delegated_ops->submit_commands != NULL);
+    CHECK(delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
     ops.submit_commands = injected_submit;
+    ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
     fail_next_submit = 1u;
     submit_calls = 0u;
@@ -112,7 +128,12 @@ int main(void)
           RIN_GPU_OK);
     CHECK(fence_value == 1u && device.submission_value == 1u);
     CHECK(submit_calls == 2u);
+    fail_next_wait = 1u;
+    wait_calls = 0u;
+    CHECK(rindx_d3d12_wait(&device, fence_value, UINT64_MAX) ==
+          RIN_GPU_ERROR_BACKEND);
     CHECK(rindx_d3d12_wait(&device, fence_value, UINT64_MAX) == RIN_GPU_OK);
+    CHECK(wait_calls == 2u);
 
     CHECK(rindx_d3d12_destroy_command_list(&list) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_command_allocator(&allocator) == RIN_GPU_OK);
