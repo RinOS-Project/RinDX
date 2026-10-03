@@ -9,6 +9,8 @@
 #include <string.h>
 
 #define READBACK_BYTES 16u
+#define COMMAND_STRESS_ITERATIONS 128u
+#define COMMAND_PATTERN_STEP UINT32_C(0x9e3779b9)
 
 typedef struct RinGpuAdapterContext {
     RinGpuRuntime* runtime;
@@ -19,6 +21,27 @@ typedef struct RinDxAdapterContext {
     RinDxD3d12Device* device;
     uint8_t readback[READBACK_BYTES];
 } RinDxAdapterContext;
+
+static uint32_t workload_pattern(
+    const RinGpuDifferentialWorkloadV1* workload, uint32_t iteration)
+{
+    uint32_t seed = 0u;
+    memcpy(&seed, workload->command_stream, sizeof(seed));
+    return seed + (iteration + 1u) * COMMAND_PATTERN_STEP;
+}
+
+static int readback_matches_pattern(const uint8_t* readback,
+                                   uint32_t pattern)
+{
+    uint8_t pattern_bytes[sizeof(pattern)];
+    uint32_t index;
+    memcpy(pattern_bytes, &pattern, sizeof(pattern_bytes));
+    for (index = 0u; index < READBACK_BYTES; ++index) {
+        if (readback[index] != pattern_bytes[index % sizeof(pattern_bytes)])
+            return 0;
+    }
+    return 1;
+}
 
 static int create_software_backend(RinGpuSoftwareBackend** backend_out)
 {
@@ -74,8 +97,11 @@ static int run_ringpu_workload(RinGpuRuntime* runtime,
     RinGpuHandle list = 0u;
     RinGpuHandle fence = 0u;
     RinGpuHandle buffer = 0u;
+    uint32_t iteration;
+    int cleanup_result;
+    int iteration_result;
     static const uint8_t zeroes[READBACK_BYTES] = {0u};
-    int result;
+    int result = RIN_GPU_OK;
 
     if (runtime == NULL || workload == NULL || output == NULL ||
         workload->command_stream == NULL ||
@@ -86,16 +112,9 @@ static int run_ringpu_workload(RinGpuRuntime* runtime,
     queue_desc.struct_size = sizeof(queue_desc);
     queue_desc.capabilities = RIN_GPU_QUEUE_COPY;
     result = ringpu_runtime_create_queue(runtime, &queue_desc, &queue);
-    if (result != RIN_GPU_OK) return result;
-
-    memset(&list_desc, 0, sizeof(list_desc));
-    list_desc.abi_version = RIN_GPU_ABI_VERSION;
-    list_desc.struct_size = sizeof(list_desc);
-    list_desc.capabilities = RIN_GPU_QUEUE_COPY;
-    result = ringpu_runtime_create_command_list(runtime, &list_desc, &list);
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
     result = ringpu_runtime_create_fence(runtime, 0u, &fence);
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
 
     memset(&buffer_desc, 0, sizeof(buffer_desc));
     buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
@@ -105,34 +124,81 @@ static int run_ringpu_workload(RinGpuRuntime* runtime,
                         RIN_GPU_BUFFER_COPY_DESTINATION;
     buffer_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
     result = ringpu_runtime_create_buffer(runtime, &buffer_desc, &buffer);
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
     result = ringpu_runtime_upload_buffer(runtime, buffer, 0u, zeroes,
                                           sizeof(zeroes));
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
 
-    memset(&clear, 0, sizeof(clear));
-    clear.abi_version = RIN_GPU_ABI_VERSION;
-    clear.struct_size = sizeof(clear);
-    clear.size_bytes = READBACK_BYTES;
-    memcpy(&clear.pattern, workload->command_stream, sizeof(clear.pattern));
-    result = ringpu_runtime_command_clear_buffer(runtime, list, buffer, &clear);
-    if (result != RIN_GPU_OK) return result;
-    result = ringpu_runtime_command_list_close(runtime, list);
-    if (result != RIN_GPU_OK) return result;
+    memset(&list_desc, 0, sizeof(list_desc));
+    list_desc.abi_version = RIN_GPU_ABI_VERSION;
+    list_desc.struct_size = sizeof(list_desc);
+    list_desc.capabilities = RIN_GPU_QUEUE_COPY;
+    for (iteration = 0u; iteration < COMMAND_STRESS_ITERATIONS; ++iteration) {
+        result = ringpu_runtime_create_command_list(runtime, &list_desc, &list);
+        if (result != RIN_GPU_OK) goto cleanup;
 
-    memset(&submit, 0, sizeof(submit));
-    submit.abi_version = RIN_GPU_ABI_VERSION;
-    submit.struct_size = sizeof(submit);
-    submit.command_list = list;
-    submit.signal_fence = fence;
-    submit.signal_value = 1u;
-    result = ringpu_runtime_queue_submit(runtime, queue, &submit);
-    if (result != RIN_GPU_OK) return result;
-    result = ringpu_runtime_wait_fence(runtime, fence, 1u,
-                                       RIN_GPU_TIMEOUT_INFINITE);
-    if (result != RIN_GPU_OK) return result;
-    return ringpu_runtime_readback_buffer(runtime, buffer, 0u, output,
-                                          READBACK_BYTES);
+        memset(&clear, 0, sizeof(clear));
+        clear.abi_version = RIN_GPU_ABI_VERSION;
+        clear.struct_size = sizeof(clear);
+        clear.size_bytes = READBACK_BYTES;
+        clear.pattern = workload_pattern(workload, iteration);
+        result = ringpu_runtime_command_clear_buffer(runtime, list, buffer,
+                                                    &clear);
+        if (result == RIN_GPU_OK)
+            result = ringpu_runtime_command_list_close(runtime, list);
+        if (result == RIN_GPU_OK) {
+            memset(&submit, 0, sizeof(submit));
+            submit.abi_version = RIN_GPU_ABI_VERSION;
+            submit.struct_size = sizeof(submit);
+            submit.command_list = list;
+            submit.signal_fence = fence;
+            submit.signal_value = (uint64_t)iteration + 1u;
+            result = ringpu_runtime_queue_submit(runtime, queue, &submit);
+        }
+        if (result == RIN_GPU_OK)
+            result = ringpu_runtime_wait_fence(
+                runtime, fence, (uint64_t)iteration + 1u,
+                RIN_GPU_TIMEOUT_INFINITE);
+        if (result == RIN_GPU_OK)
+            result = ringpu_runtime_readback_buffer(runtime, buffer, 0u,
+                                                    output, READBACK_BYTES);
+        if (result == RIN_GPU_OK &&
+            !readback_matches_pattern(output,
+                                      workload_pattern(workload, iteration)))
+            result = RIN_GPU_ERROR_STATE;
+
+        iteration_result = result;
+        cleanup_result = ringpu_runtime_destroy_object(runtime, list);
+        if (cleanup_result == RIN_GPU_OK) list = 0u;
+        if (iteration_result == RIN_GPU_OK &&
+            cleanup_result != RIN_GPU_OK)
+            iteration_result = cleanup_result;
+        result = iteration_result;
+        if (result != RIN_GPU_OK) goto cleanup;
+    }
+
+cleanup:
+    if (list != 0u) {
+        cleanup_result = ringpu_runtime_destroy_object(runtime, list);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    if (buffer != 0u) {
+        cleanup_result = ringpu_runtime_destroy_object(runtime, buffer);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    if (fence != 0u) {
+        cleanup_result = ringpu_runtime_destroy_object(runtime, fence);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    if (queue != 0u) {
+        cleanup_result = ringpu_runtime_destroy_object(runtime, queue);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    return result;
 }
 
 static int run_d3d12_workload(RinDxD3d12Device* device,
@@ -145,8 +211,11 @@ static int run_d3d12_workload(RinDxD3d12Device* device,
     RinGpuBufferClearV1 clear;
     RinGpuHandle buffer = 0u;
     uint64_t fence_value = 0u;
+    uint32_t iteration;
+    int cleanup_result;
+    int iteration_result;
     static const uint8_t zeroes[READBACK_BYTES] = {0u};
-    int result;
+    int result = RIN_GPU_OK;
 
     if (device == NULL || workload == NULL || output == NULL ||
         workload->command_stream == NULL ||
@@ -155,9 +224,7 @@ static int run_d3d12_workload(RinDxD3d12Device* device,
     memset(&allocator, 0, sizeof(allocator));
     memset(&list, 0, sizeof(list));
     result = rindx_d3d12_create_command_allocator(device, &allocator);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_create_command_list(device, &allocator, &list);
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
 
     memset(&buffer_desc, 0, sizeof(buffer_desc));
     buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
@@ -167,33 +234,64 @@ static int run_d3d12_workload(RinDxD3d12Device* device,
                         RIN_GPU_BUFFER_COPY_DESTINATION;
     buffer_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
     result = rindx_d3d12_create_buffer(device, &buffer_desc, &buffer);
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
     result = rindx_d3d12_upload_buffer(device, buffer, 0u, zeroes,
                                        sizeof(zeroes));
-    if (result != RIN_GPU_OK) return result;
+    if (result != RIN_GPU_OK) goto cleanup;
 
-    memset(&clear, 0, sizeof(clear));
-    clear.abi_version = RIN_GPU_ABI_VERSION;
-    clear.struct_size = sizeof(clear);
-    clear.size_bytes = READBACK_BYTES;
-    memcpy(&clear.pattern, workload->command_stream, sizeof(clear.pattern));
-    result = rindx_d3d12_clear_buffer(&list, buffer, &clear);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_close_command_list(&list);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_execute_command_lists(device, &list, &fence_value);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_wait(device, fence_value, RIN_GPU_TIMEOUT_INFINITE);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_readback_buffer(device, buffer, 0u, output,
-                                         READBACK_BYTES);
-    if (result != RIN_GPU_OK) return result;
+    for (iteration = 0u; iteration < COMMAND_STRESS_ITERATIONS; ++iteration) {
+        memset(&list, 0, sizeof(list));
+        result = rindx_d3d12_create_command_list(device, &allocator, &list);
+        if (result != RIN_GPU_OK) goto cleanup;
 
-    result = rindx_d3d12_destroy_command_list(&list);
-    if (result != RIN_GPU_OK) return result;
-    result = rindx_d3d12_destroy_object(device, buffer);
-    if (result != RIN_GPU_OK) return result;
-    return rindx_d3d12_destroy_command_allocator(&allocator);
+        memset(&clear, 0, sizeof(clear));
+        clear.abi_version = RIN_GPU_ABI_VERSION;
+        clear.struct_size = sizeof(clear);
+        clear.size_bytes = READBACK_BYTES;
+        clear.pattern = workload_pattern(workload, iteration);
+        result = rindx_d3d12_clear_buffer(&list, buffer, &clear);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_close_command_list(&list);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_execute_command_lists(device, &list,
+                                                      &fence_value);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_wait(device, fence_value,
+                                      RIN_GPU_TIMEOUT_INFINITE);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_readback_buffer(device, buffer, 0u, output,
+                                                 READBACK_BYTES);
+        if (result == RIN_GPU_OK &&
+            !readback_matches_pattern(output,
+                                      workload_pattern(workload, iteration)))
+            result = RIN_GPU_ERROR_STATE;
+
+        iteration_result = result;
+        cleanup_result = rindx_d3d12_destroy_command_list(&list);
+        if (iteration_result == RIN_GPU_OK &&
+            cleanup_result != RIN_GPU_OK)
+            iteration_result = cleanup_result;
+        result = iteration_result;
+        if (result != RIN_GPU_OK) goto cleanup;
+    }
+
+cleanup:
+    if (list.struct_size != 0u) {
+        cleanup_result = rindx_d3d12_destroy_command_list(&list);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    if (buffer != 0u) {
+        cleanup_result = rindx_d3d12_destroy_object(device, buffer);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    if (allocator.struct_size != 0u) {
+        cleanup_result = rindx_d3d12_destroy_command_allocator(&allocator);
+        if (result == RIN_GPU_OK && cleanup_result != RIN_GPU_OK)
+            result = cleanup_result;
+    }
+    return result;
 }
 
 static void fill_readback_snapshot(
@@ -259,6 +357,7 @@ int main(void)
     const uint32_t clear_pattern = UINT32_C(0xa55a3cc3);
     uint8_t expected_pattern[sizeof(clear_pattern)];
     uint8_t expected_readback[READBACK_BYTES];
+    uint32_t expected_final_pattern;
     uint32_t index;
     int result;
 
@@ -325,7 +424,10 @@ int main(void)
 
     result = rin_gpu_differential_run_pair(
         &workload, &ringpu_adapter, &rindx_adapter, &policy, &report);
-    memcpy(expected_pattern, &clear_pattern, sizeof(clear_pattern));
+    expected_final_pattern = workload_pattern(
+        &workload, COMMAND_STRESS_ITERATIONS - 1u);
+    memcpy(expected_pattern, &expected_final_pattern,
+           sizeof(expected_final_pattern));
     for (index = 0u; index < READBACK_BYTES; ++index)
         expected_readback[index] = expected_pattern[
             index % sizeof(expected_pattern)];
