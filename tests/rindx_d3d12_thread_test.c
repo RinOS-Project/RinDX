@@ -31,6 +31,8 @@ typedef struct WorkerContext {
     RinDxD3d12Device* device;
     const RinGpuBufferDescV1* buffer_desc;
     RinGpuHandle pending_buffer;
+    RinDxD3d12CommandAllocator allocator;
+    RinDxD3d12CommandList pending_list;
     uint32_t completed;
     int failed;
 } WorkerContext;
@@ -54,6 +56,22 @@ static void worker_run(WorkerContext* context)
             return;
         }
         context->pending_buffer = 0u;
+
+        result = rindx_d3d12_create_command_list(
+            context->device, &context->allocator, &context->pending_list);
+        if (result != RIN_GPU_OK) {
+            context->failed = 1;
+            return;
+        }
+        result = rindx_d3d12_close_command_list(&context->pending_list);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_reset_command_list(&context->pending_list);
+        if (result == RIN_GPU_OK)
+            result = rindx_d3d12_destroy_command_list(&context->pending_list);
+        if (result != RIN_GPU_OK) {
+            context->failed = 1;
+            return;
+        }
         ++context->completed;
     }
 }
@@ -118,6 +136,8 @@ int main(void)
     for (uint32_t index = 0u; index < THREAD_COUNT; ++index) {
         contexts[index].device = &device;
         contexts[index].buffer_desc = &buffer_desc;
+        CHECK(rindx_d3d12_create_command_allocator(
+                  &device, &contexts[index].allocator) == RIN_GPU_OK);
     }
 
 #if defined(_WIN32)
@@ -163,6 +183,14 @@ int main(void)
             rindx_d3d12_destroy_object(&device,
                                        contexts[index].pending_buffer) !=
                 RIN_GPU_OK)
+            success = 0;
+        if (contexts[index].pending_list.struct_size != 0u &&
+            rindx_d3d12_destroy_command_list(
+                &contexts[index].pending_list) != RIN_GPU_OK)
+            success = 0;
+        if (contexts[index].allocator.struct_size != 0u &&
+            rindx_d3d12_destroy_command_allocator(
+                &contexts[index].allocator) != RIN_GPU_OK)
             success = 0;
     }
     if (rindx_d3d12_destroy_device(&device) != RIN_GPU_OK) success = 0;
