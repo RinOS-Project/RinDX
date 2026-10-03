@@ -18,6 +18,23 @@ static int check_hr(HRESULT result, const char* expression, int line) {
     return 1;
 }
 
+static int descriptor_heap_cpu_handle(
+    ID3D12DescriptorHeap* heap, D3D12_CPU_DESCRIPTOR_HANDLE* handle)
+{
+    if (heap == NULL || handle == NULL) return 0;
+#if defined(__MINGW32__)
+    /* MinGW's C vtable models this aggregate return with an explicit output
+     * pointer, while its COBJMACROS entry is deliberately disabled. */
+    return heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(heap, handle) !=
+               NULL &&
+           handle->ptr != 0u;
+#else
+    return ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+               heap, handle) != NULL &&
+           handle->ptr != 0u;
+#endif
+}
+
 static LRESULT CALLBACK test_window_proc(HWND window, UINT message,
                                          WPARAM wparam, LPARAM lparam) {
     if (message == WM_DESTROY) PostQuitMessage(0);
@@ -208,8 +225,8 @@ int main(void) {
     CHECK_HR(ID3D12Device_CreateDescriptorHeap(
         d3d12_device, &heap_desc, &IID_ID3D12DescriptorHeap,
         (void**)&d3d12_swap_rtv_heap));
-    CHECK(ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-              d3d12_swap_rtv_heap, &d3d12_swap_rtv_handle) != NULL);
+    CHECK(descriptor_heap_cpu_handle(d3d12_swap_rtv_heap,
+                                     &d3d12_swap_rtv_handle));
     ID3D12Device_CreateRenderTargetView(
         d3d12_device, d3d12_backbuffer, NULL, d3d12_swap_rtv_handle);
     CHECK_HR(ID3D12Device_CreateCommandAllocator(
@@ -314,8 +331,7 @@ int main(void) {
     CHECK_HR(ID3D12Device_CreateDescriptorHeap(
         d3d12_device, &heap_desc, &IID_ID3D12DescriptorHeap,
         (void**)&rtv_heap));
-    CHECK(ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-              rtv_heap, &rtv_handle) != NULL);
+    CHECK(descriptor_heap_cpu_handle(rtv_heap, &rtv_handle));
     ID3D12Device_CreateRenderTargetView(
         d3d12_device, color_resource, NULL, rtv_handle);
     CHECK_HR(ID3D12Device_CreateCommandAllocator(
