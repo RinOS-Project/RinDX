@@ -19,6 +19,27 @@ static uint32_t submit_calls;
 static uint32_t fail_next_submit;
 static uint32_t wait_calls;
 static uint32_t fail_next_wait;
+static uint32_t buffer_create_calls;
+static uint32_t delegated_buffer_create_calls;
+static uint32_t fail_next_buffer_create;
+
+static int injected_create_buffer(void* context,
+                                 const RinGpuBufferDescV1* desc,
+                                 uint64_t* cookie)
+{
+    int result;
+    if (!context || !desc || !cookie || !delegated_ops ||
+        !delegated_ops->create_buffer)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++buffer_create_calls;
+    if (fail_next_buffer_create != 0u) {
+        --fail_next_buffer_create;
+        return RIN_GPU_ERROR_NO_MEMORY;
+    }
+    result = delegated_ops->create_buffer(context, desc, cookie);
+    if (result == RIN_GPU_OK) ++delegated_buffer_create_calls;
+    return result;
+}
 
 static int injected_submit(void* context,
                            const RinGpuBackendCommandV1* commands,
@@ -83,6 +104,8 @@ int main(void)
     RinDxD3d12Device device;
     RinDxD3d12CommandAllocator allocator;
     RinDxD3d12CommandList list;
+    RinGpuBufferDescV1 buffer_desc;
+    RinGpuHandle buffer = UINT64_C(0xdeadbeef);
     const uint32_t feature_level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
     const uint64_t untouched_fence_value = UINT64_C(0xfeedface);
     uint64_t fence_value = untouched_fence_value;
@@ -99,8 +122,10 @@ int main(void)
 
     delegated_ops = ringpu_software_backend_ops();
     CHECK(delegated_ops != NULL && delegated_ops->submit_commands != NULL);
+    CHECK(delegated_ops->create_buffer != NULL);
     CHECK(delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
+    ops.create_buffer = injected_create_buffer;
     ops.submit_commands = injected_submit;
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
@@ -113,6 +138,25 @@ int main(void)
           RIN_GPU_OK);
     CHECK(rindx_d3d12_create_command_list(&device, &allocator, &list) ==
           RIN_GPU_OK);
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
+    buffer_desc.struct_size = sizeof(buffer_desc);
+    buffer_desc.size_bytes = 16u;
+    buffer_desc.usage = RIN_GPU_BUFFER_COPY_SOURCE |
+                        RIN_GPU_BUFFER_COPY_DESTINATION;
+    fail_next_buffer_create = 1u;
+    buffer_create_calls = 0u;
+    delegated_buffer_create_calls = 0u;
+    CHECK(rindx_d3d12_create_buffer(&device, &buffer_desc, &buffer) ==
+          RIN_GPU_ERROR_NO_MEMORY);
+    CHECK(buffer == 0u);
+    CHECK(buffer_create_calls == 1u && delegated_buffer_create_calls == 0u);
+    CHECK(rindx_d3d12_create_buffer(&device, &buffer_desc, &buffer) ==
+          RIN_GPU_OK);
+    CHECK(buffer != 0u && buffer_create_calls == 2u &&
+          delegated_buffer_create_calls == 1u);
+    CHECK(rindx_d3d12_destroy_object(&device, buffer) == RIN_GPU_OK);
 
     CHECK(rindx_d3d12_execute_command_lists(&device, &list, &fence_value) ==
           RIN_GPU_ERROR_BACKEND);
