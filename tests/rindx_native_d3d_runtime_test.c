@@ -211,6 +211,11 @@ int main(void) {
                                           DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
     ID3D11RenderTargetView_Release(render_target);
     ID3D11Texture2D_Release(backbuffer);
+    backbuffer = NULL;
+    CHECK_HR(IDXGISwapChain_GetBuffer(
+        swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
+    ID3D11Texture2D_Release(backbuffer);
+    backbuffer = NULL;
     IDXGISwapChain_Release(swapchain);
     ID3D11DeviceContext_Release(swap_context);
     ID3D11Device_Release(swap_device);
@@ -279,6 +284,11 @@ int main(void) {
     d3d12_backbuffer = NULL;
     CHECK_HR(IDXGISwapChain_ResizeBuffers(
         d3d12_swapchain, 2u, 2u, 2u, DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
+    CHECK_HR(IDXGISwapChain_GetBuffer(
+        d3d12_swapchain, 0u, &IID_ID3D12Resource,
+        (void**)&d3d12_backbuffer));
+    ID3D12Resource_Release(d3d12_backbuffer);
+    d3d12_backbuffer = NULL;
     IDXGISwapChain_Release(d3d12_swapchain);
     IDXGIFactory1_Release(factory);
     resource_list = NULL;
