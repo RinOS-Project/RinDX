@@ -81,6 +81,10 @@ if(BUILD_TESTING)
         tests/rindx_d3d12_failure_test.c)
     target_link_libraries(rindx-d3d12-failure-test PRIVATE RinDX::RinDX)
     add_test(NAME rindx-d3d12-failure COMMAND rindx-d3d12-failure-test)
+    add_executable(rindx-d3d11-failure-test
+        tests/rindx_d3d11_failure_test.c)
+    target_link_libraries(rindx-d3d11-failure-test PRIVATE RinDX::RinDX)
+    add_test(NAME rindx-d3d11-failure COMMAND rindx-d3d11-failure-test)
     add_executable(rindx-d3d12-thread-test
         tests/rindx_d3d12_thread_test.c)
     target_link_libraries(rindx-d3d12-thread-test PRIVATE RinDX::RinDX)
