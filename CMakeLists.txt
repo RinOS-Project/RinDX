@@ -92,6 +92,15 @@ if(BUILD_TESTING)
         tests/rindx_d3d12_lifetime_test.c)
     target_link_libraries(rindx-d3d12-lifetime-test PRIVATE RinDX::RinDX)
     add_test(NAME rindx-d3d12-lifetime COMMAND rindx-d3d12-lifetime-test)
+    if(RINGPU_BUILD_SOFTWARE_BACKEND)
+        add_executable(rindx-cross-backend-test
+            tests/rindx_differential_test.c
+            ${RINGPU_DIR}/tests/differential/differential.c)
+        target_include_directories(rindx-cross-backend-test PRIVATE
+            ${RINGPU_DIR}/tests/differential)
+        target_link_libraries(rindx-cross-backend-test PRIVATE RinDX::RinDX)
+        add_test(NAME rindx-cross-backend COMMAND rindx-cross-backend-test)
+    endif()
     if(WIN32)
         add_executable(rindx-native-d3d-runtime-test
             tests/rindx_native_d3d_runtime_test.c)
