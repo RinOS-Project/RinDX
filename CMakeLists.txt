@@ -62,9 +62,16 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    if(NOT WIN32)
+        find_package(Threads REQUIRED)
+    endif()
     add_executable(rindx-d3d11-runtime-test
         tests/rindx_d3d11_runtime_test.c)
     target_link_libraries(rindx-d3d11-runtime-test PRIVATE RinDX::RinDX)
+    if(NOT WIN32)
+        target_link_libraries(rindx-d3d11-runtime-test PRIVATE
+            Threads::Threads)
+    endif()
     add_test(NAME rindx-d3d11-runtime COMMAND rindx-d3d11-runtime-test)
     add_executable(rindx-d3d12-runtime-test
         tests/rindx_d3d12_runtime_test.c)

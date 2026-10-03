@@ -4,6 +4,19 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <pthread.h>
+#include <sched.h>
+#endif
+
 #define CHECK(condition) do { \
     if (!(condition)) { fprintf(stderr, "check failed: %s:%d: %s\n", \
                                 __FILE__, __LINE__, #condition); return 1; } \
@@ -17,6 +30,137 @@ typedef struct ShaderBlob {
 typedef struct PresentCapture {
     uint32_t calls;
 } PresentCapture;
+
+#define MULTITHREAD_STRESS_COUNT 4u
+#define MULTITHREAD_STRESS_ITERATIONS 2000u
+
+typedef struct MultithreadStressContext {
+    RinDxD3d11Device* device;
+    RinDxD3d11Context* context;
+    const RinGpuBufferDescV1* buffer_desc;
+    int failed;
+} MultithreadStressContext;
+
+static void stress_yield(void)
+{
+#if defined(_WIN32)
+    (void)SwitchToThread();
+#else
+    (void)sched_yield();
+#endif
+}
+
+static void multithread_stress_worker(void* opaque)
+{
+    MultithreadStressContext* context =
+        (MultithreadStressContext*)opaque;
+    uint32_t iteration;
+
+    for (iteration = 0u; iteration < MULTITHREAD_STRESS_ITERATIONS;
+         ++iteration) {
+        RinGpuHandle buffer = 0u;
+        int result;
+
+        do {
+            result = rindx_d3d11_enter_multithread(context->context);
+            if (result == RIN_GPU_ERROR_BUSY) stress_yield();
+        } while (result == RIN_GPU_ERROR_BUSY);
+        if (result != RIN_GPU_OK) {
+            context->failed = 1;
+            break;
+        }
+
+        result = rindx_d3d11_create_buffer(context->device,
+                                           context->buffer_desc, &buffer);
+        if (result == RIN_GPU_OK && buffer != 0u)
+            result = rindx_d3d11_destroy_object(context->device, buffer);
+        else if (result == RIN_GPU_OK)
+            result = RIN_GPU_ERROR_STATE;
+
+        if (rindx_d3d11_leave_multithread(context->context) != RIN_GPU_OK ||
+            result != RIN_GPU_OK) {
+            context->failed = 1;
+            break;
+        }
+    }
+}
+
+#if defined(_WIN32)
+static DWORD WINAPI multithread_stress_entry(LPVOID opaque)
+{
+    multithread_stress_worker(opaque);
+    return 0u;
+}
+#else
+static void* multithread_stress_entry(void* opaque)
+{
+    multithread_stress_worker(opaque);
+    return NULL;
+}
+#endif
+
+static int run_multithread_stress(RinDxD3d11Device* device,
+                                  RinDxD3d11Context* context)
+{
+    RinGpuBufferDescV1 buffer_desc;
+    MultithreadStressContext contexts[MULTITHREAD_STRESS_COUNT];
+    uint32_t created = 0u;
+    uint32_t index;
+    int success = 1;
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.abi_version = RIN_GPU_ABI_VERSION;
+    buffer_desc.struct_size = sizeof(buffer_desc);
+    buffer_desc.size_bytes = 256u;
+    buffer_desc.usage = RIN_GPU_BUFFER_COPY_SOURCE |
+                        RIN_GPU_BUFFER_COPY_DESTINATION;
+    buffer_desc.flags = RIN_GPU_BUFFER_CPU_VISIBLE;
+    memset(contexts, 0, sizeof(contexts));
+    for (index = 0u; index < MULTITHREAD_STRESS_COUNT; ++index) {
+        contexts[index].device = device;
+        contexts[index].context = context;
+        contexts[index].buffer_desc = &buffer_desc;
+    }
+
+#if defined(_WIN32)
+    {
+        HANDLE threads[MULTITHREAD_STRESS_COUNT] = {NULL};
+        for (index = 0u; index < MULTITHREAD_STRESS_COUNT; ++index) {
+            threads[index] = CreateThread(NULL, 0u, multithread_stress_entry,
+                                          &contexts[index], 0u, NULL);
+            if (!threads[index]) {
+                success = 0;
+                break;
+            }
+            ++created;
+        }
+        for (index = 0u; index < created; ++index) {
+            if (WaitForSingleObject(threads[index], INFINITE) != WAIT_OBJECT_0)
+                success = 0;
+            CloseHandle(threads[index]);
+        }
+    }
+#else
+    {
+        pthread_t threads[MULTITHREAD_STRESS_COUNT];
+        for (index = 0u; index < MULTITHREAD_STRESS_COUNT; ++index) {
+            if (pthread_create(&threads[index], NULL, multithread_stress_entry,
+                               &contexts[index]) != 0) {
+                success = 0;
+                break;
+            }
+            ++created;
+        }
+        for (index = 0u; index < created; ++index)
+            if (pthread_join(threads[index], NULL) != 0) success = 0;
+    }
+#endif
+
+    if (created != MULTITHREAD_STRESS_COUNT) success = 0;
+    for (index = 0u; index < created; ++index)
+        if (contexts[index].failed) success = 0;
+    return success;
+}
 
 static void instruction(RinShaderInstructionV1* out, uint16_t opcode,
                         uint16_t destination, uint16_t source0,
@@ -474,6 +618,7 @@ int main(void)
     CHECK(rindx_d3d11_enter_multithread(&context) == RIN_GPU_ERROR_BUSY);
     CHECK(rindx_d3d11_leave_multithread(&context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_leave_multithread(&context) == RIN_GPU_ERROR_STATE);
+    CHECK(run_multithread_stress(&device, &context));
     CHECK(rindx_d3d11_set_multithread_protected(&context, 0u) == RIN_GPU_OK);
     CHECK(rindx_d3d11_create_query(&device, RIN_DX_D3D11_QUERY_OCCLUSION,
                                    &occlusion_query) == RIN_GPU_OK);

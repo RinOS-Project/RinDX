@@ -6,6 +6,10 @@
 
 #if defined(_MSC_VER)
 #include <intrin.h>
+static uint32_t rin_d3d11_load_lock(const volatile uint32_t* value) {
+    return (uint32_t)_InterlockedCompareExchange(
+        (volatile long*)(void*)value, 0L, 0L);
+}
 static int rin_d3d11_try_lock(volatile uint32_t* value) {
     return (uint32_t)_InterlockedCompareExchange(
                (volatile long*)(void*)value, 1L, 0L) == 0u;
@@ -16,6 +20,9 @@ static uint32_t rin_d3d11_exchange_lock(volatile uint32_t* value,
                                           (long)replacement);
 }
 #else
+static uint32_t rin_d3d11_load_lock(const volatile uint32_t* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
 static int rin_d3d11_try_lock(volatile uint32_t* value) {
     uint32_t expected = 0u;
     return __atomic_compare_exchange_n(value, &expected, 1u, 0,
@@ -47,7 +54,7 @@ static int context_valid(const RinDxD3d11Context* context)
            device_valid(context->device) && context->command_list != 0u &&
            context->deferred_context <= 1u && context->reserved0 == 0u &&
            context->multithread_protected <= 1u &&
-           context->multithread_lock <= 1u &&
+           rin_d3d11_load_lock(&context->multithread_lock) <= 1u &&
            context->state == RIN_DX_D3D11_STATE_READY;
 }
 
@@ -257,7 +264,7 @@ int rindx_d3d11_set_multithread_protected(RinDxD3d11Context* context,
                                           uint32_t enabled)
 {
     if (!context_valid(context) || enabled > 1u ||
-        context->multithread_lock != 0u)
+        rin_d3d11_load_lock(&context->multithread_lock) != 0u)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
     context->multithread_protected = enabled;
     return RIN_GPU_OK;
