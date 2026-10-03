@@ -1071,6 +1071,23 @@ int main(void)
     CHECK(rindx_d3d12_destroy_object(&device, storage_image) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, sampled_image) == RIN_GPU_OK);
     CHECK(rindx_d3d12_destroy_object(&device, sample_target) == RIN_GPU_OK);
+    {
+        RinGpuBufferDescV1 soak_desc;
+        memset(&soak_desc, 0, sizeof(soak_desc));
+        soak_desc.abi_version = RIN_GPU_ABI_VERSION;
+        soak_desc.struct_size = sizeof(soak_desc);
+        soak_desc.size_bytes = 16u;
+        soak_desc.usage = RIN_GPU_BUFFER_COPY_SOURCE |
+                          RIN_GPU_BUFFER_COPY_DESTINATION;
+        for (uint32_t iteration = 0u; iteration < 4096u; ++iteration) {
+            RinGpuHandle soak_buffer = UINT64_MAX;
+            CHECK(rindx_d3d12_create_buffer(&device, &soak_desc,
+                                            &soak_buffer) == RIN_GPU_OK);
+            CHECK(soak_buffer != 0u);
+            CHECK(rindx_d3d12_destroy_object(&device, soak_buffer) ==
+                  RIN_GPU_OK);
+        }
+    }
     CHECK(rindx_d3d12_get_device_removed_reason(&device) == RIN_GPU_OK);
     CHECK(rindx_d3d12_get_device_removed_reason_hresult(&device) ==
           RIN_DXGI_S_OK);
