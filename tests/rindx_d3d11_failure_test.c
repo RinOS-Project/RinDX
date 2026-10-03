@@ -18,6 +18,9 @@ static const RinGpuBackendOpsV1* delegated_ops;
 static uint32_t create_calls;
 static uint32_t delegated_create_calls;
 static uint32_t fail_next_create;
+static uint32_t image_create_calls;
+static uint32_t delegated_image_create_calls;
+static uint32_t fail_next_image_create;
 static uint32_t submit_calls;
 static uint32_t fail_next_submit;
 static uint32_t wait_calls;
@@ -38,6 +41,25 @@ static int injected_create_buffer(void* context,
     }
     result = delegated_ops->create_buffer(context, desc, cookie);
     if (result == RIN_GPU_OK) ++delegated_create_calls;
+    return result;
+}
+
+static int injected_create_image(void* context,
+                                const RinGpuImageDescV1* desc,
+                                uint64_t allocation_bytes, uint64_t* cookie)
+{
+    int result;
+    if (!context || !desc || !cookie || !delegated_ops ||
+        !delegated_ops->create_image)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++image_create_calls;
+    if (fail_next_image_create != 0u) {
+        --fail_next_image_create;
+        return RIN_GPU_ERROR_NO_MEMORY;
+    }
+    result = delegated_ops->create_image(context, desc, allocation_bytes,
+                                          cookie);
+    if (result == RIN_GPU_OK) ++delegated_image_create_calls;
     return result;
 }
 
@@ -105,7 +127,9 @@ int main(void)
     RinDxD3d11Context immediate_context;
     RinDxD3d11Context deferred_context;
     RinGpuBufferDescV1 buffer_desc;
+    RinGpuImageDescV1 image_desc;
     RinGpuHandle buffer = UINT64_C(0xdeadbeef);
+    RinGpuHandle image = UINT64_C(0xdeadbeef);
     RinGpuHandle command_list = 0u;
     uint64_t fence_value = UINT64_MAX;
     const uint32_t feature_level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
@@ -121,10 +145,12 @@ int main(void)
 
     delegated_ops = ringpu_software_backend_ops();
     CHECK(delegated_ops != NULL && delegated_ops->create_buffer != NULL &&
+          delegated_ops->create_image != NULL &&
           delegated_ops->submit_commands != NULL &&
           delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
     ops.create_buffer = injected_create_buffer;
+    ops.create_image = injected_create_image;
     ops.submit_commands = injected_submit;
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
@@ -152,6 +178,32 @@ int main(void)
     CHECK(buffer != 0u && create_calls == 2u &&
           delegated_create_calls == 1u);
     CHECK(rindx_d3d11_destroy_object(&device, buffer) == RIN_GPU_OK);
+
+    memset(&image_desc, 0, sizeof(image_desc));
+    image_desc.abi_version = RIN_GPU_ABI_VERSION;
+    image_desc.struct_size = sizeof(image_desc);
+    image_desc.dimension = RIN_GPU_IMAGE_DIMENSION_2D;
+    image_desc.format = RIN_GPU_FORMAT_RGBA8_UNORM;
+    image_desc.width = 2u;
+    image_desc.height = 2u;
+    image_desc.depth = 1u;
+    image_desc.array_layers = 1u;
+    image_desc.mip_levels = 1u;
+    image_desc.sample_count = 1u;
+    image_desc.usage = RIN_GPU_IMAGE_COPY_SOURCE |
+                       RIN_GPU_IMAGE_COPY_DESTINATION;
+    fail_next_image_create = 1u;
+    image_create_calls = 0u;
+    delegated_image_create_calls = 0u;
+    CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
+          RIN_GPU_ERROR_NO_MEMORY);
+    CHECK(image == 0u);
+    CHECK(image_create_calls == 1u && delegated_image_create_calls == 0u);
+    CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
+          RIN_GPU_OK);
+    CHECK(image != 0u && image_create_calls == 2u &&
+          delegated_image_create_calls == 1u);
+    CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
 
     CHECK(rindx_d3d11_create_context(&device, &immediate_context) ==
           RIN_GPU_OK);
