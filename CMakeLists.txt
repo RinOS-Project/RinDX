@@ -88,6 +88,10 @@ if(BUILD_TESTING)
         target_link_libraries(rindx-d3d12-thread-test PRIVATE Threads::Threads)
     endif()
     add_test(NAME rindx-d3d12-thread COMMAND rindx-d3d12-thread-test)
+    add_executable(rindx-d3d12-lifetime-test
+        tests/rindx_d3d12_lifetime_test.c)
+    target_link_libraries(rindx-d3d12-lifetime-test PRIVATE RinDX::RinDX)
+    add_test(NAME rindx-d3d12-lifetime COMMAND rindx-d3d12-lifetime-test)
     if(WIN32)
         add_executable(rindx-native-d3d-runtime-test
             tests/rindx_native_d3d_runtime_test.c)
