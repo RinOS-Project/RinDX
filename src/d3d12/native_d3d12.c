@@ -21,6 +21,18 @@ typedef struct NativeD3d12PrivateData {
     struct NativeD3d12PrivateData* next;
 } NativeD3d12PrivateData;
 
+typedef struct NativeD3d12FenceEventWaiter {
+    UINT64 value;
+    HANDLE event;
+    struct NativeD3d12FenceEventWaiter* next;
+} NativeD3d12FenceEventWaiter;
+
+typedef struct NativeD3d12QueueWait {
+    struct NativeD3d12Fence* fence;
+    UINT64 value;
+    struct NativeD3d12QueueWait* next;
+} NativeD3d12QueueWait;
+
 typedef struct NativeD3d12ObjectData {
     NativeD3d12PrivateData* private_data;
     WCHAR* name;
@@ -51,6 +63,9 @@ struct NativeD3d12Queue {
     NativeD3d12Device* device;
     D3D12_COMMAND_QUEUE_DESC desc;
     int last_result;
+    CRITICAL_SECTION order_lock;
+    NativeD3d12QueueWait* pending_waits;
+    NativeD3d12QueueWait* pending_waits_tail;
 };
 
 struct NativeD3d12Allocator {
@@ -88,6 +103,10 @@ struct NativeD3d12Fence {
     NativeD3d12ObjectData object;
     NativeD3d12Device* device;
     RinGpuHandle handle;
+    SRWLOCK value_lock;
+    CONDITION_VARIABLE value_changed;
+    UINT64 completed_value;
+    NativeD3d12FenceEventWaiter* event_waiters;
 };
 
 struct NativeD3d12Resource {
@@ -1210,6 +1229,14 @@ static ULONG WINAPI native_queue_release(ID3D12CommandQueue* self) {
     NativeD3d12Queue* queue = native_queue(self);
     LONG references = InterlockedDecrement(&queue->references);
     if (references == 0) {
+        NativeD3d12QueueWait* wait = queue->pending_waits;
+        while (wait) {
+            NativeD3d12QueueWait* next = wait->next;
+            ID3D12Fence_Release(&wait->fence->iface);
+            free(wait);
+            wait = next;
+        }
+        DeleteCriticalSection(&queue->order_lock);
         ID3D12Device_Release(&queue->device->iface);
         native_object_data_destroy(&queue->object);
         free(queue);
@@ -1253,6 +1280,13 @@ static ULONG WINAPI native_fence_release(ID3D12Fence* self) {
     NativeD3d12Fence* fence = native_fence(self);
     LONG references = InterlockedDecrement(&fence->references);
     if (references == 0) {
+        NativeD3d12FenceEventWaiter* waiter = fence->event_waiters;
+        while (waiter) {
+            NativeD3d12FenceEventWaiter* next = waiter->next;
+            CloseHandle(waiter->event);
+            free(waiter);
+            waiter = next;
+        }
         (void)ringpu_runtime_destroy_object(fence->device->core.runtime,
                                             fence->handle);
         ID3D12Device_Release(&fence->device->iface);
@@ -1309,6 +1343,76 @@ static D3D12_COMMAND_LIST_TYPE WINAPI native_queue_get_type(
     ID3D12CommandQueue* self) {
     return native_queue(self)->desc.Type;
 }
+
+static UINT64 native_fence_value(NativeD3d12Fence* fence) {
+    UINT64 value;
+    AcquireSRWLockShared(&fence->value_lock);
+    value = fence->completed_value;
+    ReleaseSRWLockShared(&fence->value_lock);
+    return value;
+}
+
+static HRESULT native_fence_wait_value(NativeD3d12Fence* fence,
+                                       UINT64 value) {
+    HRESULT result = S_OK;
+    AcquireSRWLockExclusive(&fence->value_lock);
+    while (fence->completed_value < value) {
+        if (!SleepConditionVariableSRW(&fence->value_changed,
+                                       &fence->value_lock, 50u, 0u)) {
+            DWORD error = GetLastError();
+            if (error != ERROR_TIMEOUT) {
+                result = HRESULT_FROM_WIN32(error);
+                break;
+            }
+            if (rindx_d3d12_get_device_removed_reason(&fence->device->core) !=
+                RIN_GPU_OK) {
+                result = DXGI_ERROR_DEVICE_REMOVED;
+                break;
+            }
+        }
+    }
+    ReleaseSRWLockExclusive(&fence->value_lock);
+    return result;
+}
+
+static void native_fence_publish_value(NativeD3d12Fence* fence,
+                                       UINT64 value) {
+    NativeD3d12FenceEventWaiter** link;
+    AcquireSRWLockExclusive(&fence->value_lock);
+    if (value > fence->completed_value) fence->completed_value = value;
+    WakeAllConditionVariable(&fence->value_changed);
+    link = &fence->event_waiters;
+    while (*link) {
+        NativeD3d12FenceEventWaiter* waiter = *link;
+        if (waiter->value <= fence->completed_value) {
+            *link = waiter->next;
+            (void)SetEvent(waiter->event);
+            CloseHandle(waiter->event);
+            free(waiter);
+        } else {
+            link = &waiter->next;
+        }
+    }
+    ReleaseSRWLockExclusive(&fence->value_lock);
+}
+
+/* RinDX's host owner executes submissions synchronously. A D3D12 queue wait
+ * is therefore retained on the queue and honored before its next operation;
+ * the fence condition variable lets a different queue satisfy it without
+ * turning an unsignaled dependency into success or dropping the wait. */
+static HRESULT native_queue_wait_pending(NativeD3d12Queue* queue) {
+    while (queue->pending_waits) {
+        NativeD3d12QueueWait* wait = queue->pending_waits;
+        HRESULT result = native_fence_wait_value(wait->fence, wait->value);
+        if (FAILED(result)) return result;
+        queue->pending_waits = wait->next;
+        if (!queue->pending_waits) queue->pending_waits_tail = NULL;
+        ID3D12Fence_Release(&wait->fence->iface);
+        free(wait);
+    }
+    return S_OK;
+}
+
 static void WINAPI native_queue_execute(ID3D12CommandQueue* self, UINT count,
                                         ID3D12CommandList* const* lists) {
     NativeD3d12Queue* queue = native_queue(self);
@@ -1318,6 +1422,12 @@ static void WINAPI native_queue_execute(ID3D12CommandQueue* self, UINT count,
         queue->last_result = RIN_GPU_ERROR_INVALID_ARGUMENT;
         return;
     }
+    EnterCriticalSection(&queue->order_lock);
+    if (FAILED(native_queue_wait_pending(queue))) {
+        queue->last_result = RIN_GPU_ERROR_BACKEND;
+        LeaveCriticalSection(&queue->order_lock);
+        return;
+    }
     for (index = 0u; index < count; ++index) {
         NativeD3d12List* list = lists[index]
             ? (NativeD3d12List*)(void*)lists[index] : NULL;
@@ -1325,12 +1435,13 @@ static void WINAPI native_queue_execute(ID3D12CommandQueue* self, UINT count,
         if (!list || list->device != queue->device ||
             list->type != queue->desc.Type) {
             queue->last_result = RIN_GPU_ERROR_INVALID_ARGUMENT;
-            return;
+            break;
         }
         queue->last_result = rindx_d3d12_execute_command_lists(
             &queue->device->core, &list->core, &fence_value);
-        if (queue->last_result != RIN_GPU_OK) return;
+        if (queue->last_result != RIN_GPU_OK) break;
     }
+    LeaveCriticalSection(&queue->order_lock);
 }
 
 static HRESULT native_signal_fence(NativeD3d12Fence* fence, UINT64 value) {
@@ -1368,6 +1479,7 @@ static HRESULT native_signal_fence(NativeD3d12Fence* fence, UINT64 value) {
                                       command_list) != RIN_GPU_OK &&
         result == RIN_GPU_OK)
         result = RIN_GPU_ERROR_STATE;
+    if (result == RIN_GPU_OK) native_fence_publish_value(fence, value);
     return native_result(result);
 }
 
@@ -1376,19 +1488,38 @@ static HRESULT WINAPI native_queue_signal(ID3D12CommandQueue* self,
     NativeD3d12Queue* queue = native_queue(self);
     NativeD3d12Fence* target = fence ? native_fence(fence) : NULL;
     if (!target || target->device != queue->device) return E_INVALIDARG;
-    return native_signal_fence(target, value);
+    EnterCriticalSection(&queue->order_lock);
+    {
+        HRESULT result = native_queue_wait_pending(queue);
+        if (SUCCEEDED(result)) result = native_signal_fence(target, value);
+        LeaveCriticalSection(&queue->order_lock);
+        return result;
+    }
 }
 static HRESULT WINAPI native_queue_wait(ID3D12CommandQueue* self,
                                         ID3D12Fence* fence, UINT64 value) {
     NativeD3d12Queue* queue = native_queue(self);
     NativeD3d12Fence* target = fence ? native_fence(fence) : NULL;
-    uint64_t current = 0u;
-    if (!target || target->device != queue->device || value == 0u)
-        return E_INVALIDARG;
-    if (ringpu_runtime_get_fence_value(queue->device->core.runtime,
-                                       target->handle, &current) != RIN_GPU_OK)
-        return E_FAIL;
-    return value <= current ? S_OK : E_FAIL;
+    NativeD3d12QueueWait* wait;
+    if (!target || target->device != queue->device) return E_INVALIDARG;
+    EnterCriticalSection(&queue->order_lock);
+    if (value > native_fence_value(target)) {
+        wait = (NativeD3d12QueueWait*)calloc(1u, sizeof(*wait));
+        if (!wait) {
+            LeaveCriticalSection(&queue->order_lock);
+            return E_OUTOFMEMORY;
+        }
+        wait->fence = target;
+        wait->value = value;
+        ID3D12Fence_AddRef(fence);
+        if (queue->pending_waits_tail)
+            queue->pending_waits_tail->next = wait;
+        else
+            queue->pending_waits = wait;
+        queue->pending_waits_tail = wait;
+    }
+    LeaveCriticalSection(&queue->order_lock);
+    return S_OK;
 }
 static HRESULT WINAPI native_queue_get_timestamp_frequency(
     ID3D12CommandQueue* self, UINT64* frequency) {
@@ -1860,23 +1991,44 @@ static void WINAPI native_list_ia_set_index_buffer(
 }
 
 static UINT64 WINAPI native_fence_get_completed_value(ID3D12Fence* self) {
-    uint64_t value = 0u;
-    if (ringpu_runtime_get_fence_value(native_fence(self)->device->core.runtime,
-                                       native_fence(self)->handle,
-                                       &value) != RIN_GPU_OK)
+    NativeD3d12Fence* fence = native_fence(self);
+    if (rindx_d3d12_get_device_removed_reason(&fence->device->core) !=
+        RIN_GPU_OK)
         return UINT64_MAX;
-    return value;
+    return native_fence_value(fence);
 }
+
 static HRESULT WINAPI native_fence_set_event(ID3D12Fence* self, UINT64 value,
                                              HANDLE event) {
-    if (!event || value == 0u) return E_INVALIDARG;
-    if (native_fence_get_completed_value(self) < value) {
-        HRESULT result = native_result(ringpu_runtime_wait_fence(
-            native_fence(self)->device->core.runtime,
-            native_fence(self)->handle, value, UINT64_MAX));
-        if (FAILED(result)) return result;
+    NativeD3d12Fence* fence = native_fence(self);
+    NativeD3d12FenceEventWaiter* waiter;
+    HANDLE duplicate = NULL;
+    if (!event) return E_INVALIDARG;
+    AcquireSRWLockExclusive(&fence->value_lock);
+    if (value <= fence->completed_value ||
+        rindx_d3d12_get_device_removed_reason(&fence->device->core) !=
+            RIN_GPU_OK) {
+        ReleaseSRWLockExclusive(&fence->value_lock);
+        return SetEvent(event) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
     }
-    return SetEvent(event) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    waiter = (NativeD3d12FenceEventWaiter*)calloc(1u, sizeof(*waiter));
+    if (!waiter) {
+        ReleaseSRWLockExclusive(&fence->value_lock);
+        return E_OUTOFMEMORY;
+    }
+    if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                         &duplicate, 0u, FALSE, DUPLICATE_SAME_ACCESS)) {
+        HRESULT result = HRESULT_FROM_WIN32(GetLastError());
+        free(waiter);
+        ReleaseSRWLockExclusive(&fence->value_lock);
+        return result;
+    }
+    waiter->value = value;
+    waiter->event = duplicate;
+    waiter->next = fence->event_waiters;
+    fence->event_waiters = waiter;
+    ReleaseSRWLockExclusive(&fence->value_lock);
+    return S_OK;
 }
 static HRESULT WINAPI native_fence_signal(ID3D12Fence* self, UINT64 value) {
     return native_signal_fence(native_fence(self), value);
@@ -1896,6 +2048,11 @@ static HRESULT WINAPI native_device_create_queue(
         return E_INVALIDARG;
     queue = (NativeD3d12Queue*)calloc(1u, sizeof(*queue));
     if (!queue) return E_OUTOFMEMORY;
+    if (!InitializeCriticalSectionEx(&queue->order_lock, 0u, 0u)) {
+        HRESULT result = HRESULT_FROM_WIN32(GetLastError());
+        free(queue);
+        return result;
+    }
     queue->iface.lpVtbl = (ID3D12CommandQueueVtbl*)(void*)&native_queue_vtable;
     queue->references = 1;
     queue->device = device;
@@ -1990,6 +2147,9 @@ static HRESULT WINAPI native_device_create_fence(
     fence->iface.lpVtbl = (ID3D12FenceVtbl*)(void*)&native_fence_vtable;
     fence->references = 1;
     fence->device = native_device(self);
+    InitializeSRWLock(&fence->value_lock);
+    InitializeConditionVariable(&fence->value_changed);
+    fence->completed_value = initial_value;
     ID3D12Device_AddRef(self);
     *out = &fence->iface;
     return S_OK;

@@ -41,6 +41,20 @@ static LRESULT CALLBACK test_window_proc(HWND window, UINT message,
     return DefWindowProcA(window, message, wparam, lparam);
 }
 
+typedef struct NativeQueueSignalTask {
+    ID3D12CommandQueue* queue;
+    ID3D12Fence* fence;
+    HANDLE started;
+    HRESULT result;
+} NativeQueueSignalTask;
+
+static DWORD WINAPI native_queue_signal_worker(void* opaque) {
+    NativeQueueSignalTask* task = (NativeQueueSignalTask*)opaque;
+    SetEvent(task->started);
+    task->result = ID3D12CommandQueue_Signal(task->queue, task->fence, 1u);
+    return 0u;
+}
+
 #define CHECK_HR(expression) \
     do { if (!check_hr((expression), #expression, __LINE__)) return 1; } while (0)
 #define CHECK(expression) \
@@ -56,9 +70,12 @@ int main(void) {
     D3D11_MAPPED_SUBRESOURCE mapped;
     ID3D12Device* d3d12_device = NULL;
     ID3D12CommandQueue* d3d12_queue = NULL;
+    ID3D12CommandQueue* d3d12_wait_queue = NULL;
     ID3D12CommandAllocator* d3d12_allocator = NULL;
     ID3D12GraphicsCommandList* d3d12_list = NULL;
     ID3D12Fence* d3d12_fence = NULL;
+    ID3D12Fence* d3d12_sync_fence = NULL;
+    ID3D12Fence* d3d12_wait_completion_fence = NULL;
     ID3D12CommandAllocator* resource_allocator = NULL;
     ID3D12GraphicsCommandList* resource_list = NULL;
     ID3D12Resource* upload_resource = NULL;
@@ -73,6 +90,9 @@ int main(void) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
     void* mapped_resource = NULL;
     HANDLE fence_event = NULL;
+    HANDLE queue_wait_started = NULL;
+    HANDLE queue_wait_thread = NULL;
+    NativeQueueSignalTask queue_wait_task;
     WNDCLASSA window_class;
     HWND window;
     DXGI_SWAP_CHAIN_DESC swap_desc;
@@ -212,6 +232,11 @@ int main(void) {
     CHECK_HR(ID3D12Device_CreateCommandQueue(
         d3d12_device, &queue_desc, &IID_ID3D12CommandQueue,
         (void**)&d3d12_queue));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    CHECK_HR(ID3D12Device_CreateCommandQueue(
+        d3d12_device, &queue_desc, &IID_ID3D12CommandQueue,
+        (void**)&d3d12_wait_queue));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1, (void**)&factory));
     CHECK_HR(IDXGIFactory1_CreateSwapChain(
         factory, (IUnknown*)d3d12_queue, &swap_desc, &d3d12_swapchain));
@@ -283,6 +308,43 @@ int main(void) {
                                                fence_event));
     CHECK(WaitForSingleObject(fence_event, 0u) == WAIT_OBJECT_0);
     CloseHandle(fence_event);
+    CHECK_HR(ID3D12Device_CreateFence(
+        d3d12_device, 0u, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence,
+        (void**)&d3d12_sync_fence));
+    CHECK_HR(ID3D12Device_CreateFence(
+        d3d12_device, 0u, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence,
+        (void**)&d3d12_wait_completion_fence));
+    fence_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+    CHECK(fence_event != NULL);
+    CHECK_HR(ID3D12Fence_SetEventOnCompletion(d3d12_sync_fence, 1u,
+                                               fence_event));
+    CHECK_HR(ID3D12CommandQueue_Wait(d3d12_wait_queue, d3d12_sync_fence,
+                                      1u));
+    CHECK(ID3D12Fence_GetCompletedValue(d3d12_sync_fence) == 0u);
+    CHECK(WaitForSingleObject(fence_event, 0u) == WAIT_TIMEOUT);
+    queue_wait_started = CreateEventA(NULL, FALSE, FALSE, NULL);
+    CHECK(queue_wait_started != NULL);
+    memset(&queue_wait_task, 0, sizeof(queue_wait_task));
+    queue_wait_task.queue = d3d12_wait_queue;
+    queue_wait_task.fence = d3d12_wait_completion_fence;
+    queue_wait_task.started = queue_wait_started;
+    queue_wait_thread = CreateThread(NULL, 0u, native_queue_signal_worker,
+                                     &queue_wait_task, 0u, NULL);
+    CHECK(queue_wait_thread != NULL);
+    CHECK(WaitForSingleObject(queue_wait_started, INFINITE) == WAIT_OBJECT_0);
+    CHECK(WaitForSingleObject(queue_wait_thread, 50u) == WAIT_TIMEOUT);
+    CHECK(ID3D12Fence_GetCompletedValue(d3d12_wait_completion_fence) == 0u);
+    CHECK_HR(ID3D12CommandQueue_Signal(d3d12_queue, d3d12_sync_fence, 1u));
+    CHECK(WaitForSingleObject(fence_event, 0u) == WAIT_OBJECT_0);
+    CHECK(WaitForSingleObject(queue_wait_thread, INFINITE) == WAIT_OBJECT_0);
+    CHECK_HR(queue_wait_task.result);
+    CHECK(ID3D12Fence_GetCompletedValue(d3d12_wait_completion_fence) == 1u);
+    CloseHandle(queue_wait_thread);
+    CloseHandle(queue_wait_started);
+    queue_wait_thread = NULL;
+    queue_wait_started = NULL;
+    CloseHandle(fence_event);
+    fence_event = NULL;
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
     heap_properties.CreationNodeMask = 1u;
@@ -362,7 +424,10 @@ int main(void) {
     ID3D12GraphicsCommandList_Release(d3d12_list);
     ID3D12CommandAllocator_Release(d3d12_allocator);
     ID3D12CommandQueue_Release(d3d12_queue);
+    ID3D12CommandQueue_Release(d3d12_wait_queue);
     ID3D12Fence_Release(d3d12_fence);
+    ID3D12Fence_Release(d3d12_sync_fence);
+    ID3D12Fence_Release(d3d12_wait_completion_fence);
     ID3D12Device_Release(d3d12_device);
     DestroyWindow(window);
     UnregisterClassA(window_class.lpszClassName, window_class.hInstance);
