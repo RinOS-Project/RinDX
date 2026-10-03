@@ -16,3 +16,26 @@ rindx_dep = declare_dependency(
   include_directories: rindx_inc,
   dependencies: ringpu_dep,
 )
+
+rindx_d3d11_runtime_test = executable(
+  'rindx-d3d11-runtime-test',
+  'tests/rindx_d3d11_runtime_test.c',
+  dependencies: rindx_dep,
+)
+test('rindx-d3d11-runtime', rindx_d3d11_runtime_test)
+
+rindx_d3d12_runtime_test = executable(
+  'rindx-d3d12-runtime-test',
+  'tests/rindx_d3d12_runtime_test.c',
+  dependencies: rindx_dep,
+)
+test('rindx-d3d12-runtime', rindx_d3d12_runtime_test)
+
+if host_machine.system() == 'windows'
+  rindx_native_d3d_runtime_test = executable(
+    'rindx-native-d3d-runtime-test',
+    'tests/rindx_native_d3d_runtime_test.c',
+    dependencies: rindx_dep,
+  )
+  test('rindx-native-d3d-runtime', rindx_native_d3d_runtime_test)
+endif

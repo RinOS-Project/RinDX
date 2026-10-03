@@ -49,6 +49,10 @@ cmake -S . -B build -DRINGPU_DIR=../RinGPU
 cmake --build build
 ```
 
+The CMake and Meson graphs both register the two portable host runtime
+contracts. The native Windows D3D contract is registered only on Windows;
+none of these tests is physical GPU or QEMU evidence.
+
 ## Public API contract
 
 | Requirement | Contract |

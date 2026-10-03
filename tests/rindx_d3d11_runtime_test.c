@@ -68,32 +68,6 @@ static void make_vertex(ShaderBlob* shader)
                 RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
 }
 
-static void make_fragment(ShaderBlob* shader)
-{
-    static const float color[4] = {1.0f, 0.25f, 0.0f, 1.0f};
-    uint32_t index;
-    memset(shader, 0, sizeof(*shader));
-    shader->header.magic = RIN_SHADER_MAGIC;
-    shader->header.version = RIN_SHADER_IR_VERSION;
-    shader->header.header_size = sizeof(shader->header);
-    shader->header.stage = RIN_SHADER_STAGE_FRAGMENT;
-    shader->header.instruction_count = 9u;
-    shader->header.register_count = 4u;
-    shader->header.output_count = 4u;
-    shader->header.total_size = sizeof(shader->header) +
-                                9u * sizeof(shader->instructions[0]);
-    for (index = 0u; index < 4u; ++index) {
-        instruction(&shader->instructions[index], RIN_SHADER_OP_CONST_F32,
-                    (uint16_t)index, RIN_SHADER_UNUSED,
-                    f32_bits(color[index]));
-        instruction(&shader->instructions[4u + index],
-                    RIN_SHADER_OP_STORE_OUTPUT_F32, RIN_SHADER_UNUSED,
-                    (uint16_t)index, index);
-    }
-    instruction(&shader->instructions[8], RIN_SHADER_OP_RETURN,
-                RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
-}
-
 static void make_storage_fragment(ShaderBlob* shader)
 {
     static const float color[4] = {1.0f, 0.25f, 0.0f, 1.0f};
@@ -412,16 +386,14 @@ int main(void)
     create_result = rindx_d3d11_create_device(&surface, &feature_level, 1u,
                                               &device);
     if (create_result != RIN_GPU_OK)
-        fprintf(stderr, "create device result: %d size=%u/%zu version=%u gen=%llu secret=%llu callbacks=%p/%p adapter=%u/%u display=%u/%u %ux%u flags=%u/%u/%llu/%llu\n",
-                create_result, surface.struct_size, sizeof(surface),
-                surface.version, (unsigned long long)surface.device_generation,
+        fprintf(stderr, "create device result: %d size=%u version=%u gen=%llu secret=%llu adapter=%u/%u display=%u/%u %ux%u flags=%u reserved0=%u\n",
+                create_result, surface.struct_size, surface.version,
+                (unsigned long long)surface.device_generation,
                 (unsigned long long)surface.handle_secret,
-                (void*)surface.present_callback, (void*)surface.acquire_image,
                 surface.adapter.struct_size, surface.adapter.abi_version,
                 surface.display.struct_size, surface.display.abi_version,
                 surface.display.width, surface.display.height, surface.flags,
-                surface.reserved0, (unsigned long long)surface.reserved[0],
-                (unsigned long long)surface.reserved[1]);
+                surface.reserved0);
     CHECK(create_result == RIN_GPU_OK);
     memset(&adapter_info, 0, sizeof(adapter_info));
     adapter_info.abi_version = RIN_GPU_ABI_VERSION;
