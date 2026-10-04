@@ -6,3 +6,4 @@ EXPORTS
     CreateDXGIFactory
     CreateDXGIFactory1
     CreateDXGIFactory2
+    rindx_native_provider_v1_initialize

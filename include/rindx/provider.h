@@ -30,4 +30,13 @@ typedef struct RinDxProviderV1 {
     uint64_t reserved[4];
 } RinDxProviderV1;
 
+#if defined(_WIN32)
+/* Initialize the native provider from an already-loaded RinDXNative module.
+ * The caller owns the module reference and must keep it loaded while any
+ * returned export address can be called. RinDX does not load modules or make
+ * DLL search-policy decisions; the OS loader supplies the admitted module. */
+int rindx_native_provider_v1_initialize(void* loaded_module,
+                                       RinDxProviderV1* provider_out);
+#endif
+
 #endif /* RINDX_PUBLIC_PROVIDER_H */

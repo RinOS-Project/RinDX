@@ -42,6 +42,7 @@ if(WIN32)
         src/d3d12/native_d3d12.c
         src/dxgi/native_dxgi.c
         src/dxgi/com.c
+        src/provider_win32.c
         src/native_exports.def)
     target_compile_features(RinDXNative PRIVATE c_std_11)
     target_compile_definitions(RinDXNative PRIVATE RINDX_BUILD_DLL=1)
@@ -110,5 +111,12 @@ if(BUILD_TESTING)
             tests/rindx_native_d3d_runtime_test.c)
         target_link_libraries(rindx-native-d3d-runtime-test PRIVATE RinDX::RinDX)
         add_test(NAME rindx-native-d3d-runtime COMMAND rindx-native-d3d-runtime-test)
+        add_executable(rindx-native-provider-test
+            tests/rindx_native_provider_test.c)
+        target_compile_features(rindx-native-provider-test PRIVATE c_std_11)
+        target_include_directories(rindx-native-provider-test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_link_libraries(rindx-native-provider-test PRIVATE RinDXNative)
+        add_test(NAME rindx-native-provider COMMAND rindx-native-provider-test)
     endif()
 endif()
