@@ -27,6 +27,10 @@ static uint32_t delegated_image_create_calls;
 static uint32_t fail_next_image_create;
 static uint32_t fail_next_partial_image_create;
 static uint32_t destroyed_image_calls;
+static uint32_t sampler_create_calls;
+static uint32_t delegated_sampler_create_calls;
+static uint32_t fail_next_partial_sampler_create;
+static uint32_t destroyed_sampler_calls;
 static uint32_t submit_calls;
 static uint32_t fail_next_submit;
 static uint32_t wait_calls;
@@ -91,6 +95,32 @@ static void injected_destroy_image(void* context, uint64_t cookie)
     if (!delegated_ops || !delegated_ops->destroy_image) return;
     ++destroyed_image_calls;
     delegated_ops->destroy_image(context, cookie);
+}
+
+static int injected_create_sampler(void* context,
+                                   const RinGpuSamplerDescV1* desc,
+                                   uint64_t* cookie)
+{
+    int result;
+    if (!context || !desc || !cookie || !delegated_ops ||
+        !delegated_ops->create_sampler)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++sampler_create_calls;
+    result = delegated_ops->create_sampler(context, desc, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_sampler_create_calls;
+    if (fail_next_partial_sampler_create != 0u) {
+        --fail_next_partial_sampler_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_sampler(void* context, uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_sampler) return;
+    ++destroyed_sampler_calls;
+    delegated_ops->destroy_sampler(context, cookie);
 }
 
 static int injected_submit(void* context,
@@ -158,6 +188,7 @@ int main(void)
     RinDxD3d11Context deferred_context;
     RinGpuBufferDescV1 buffer_desc;
     RinGpuImageDescV1 image_desc;
+    RinGpuSamplerDescV1 sampler_desc;
     RinGpuDxgiSwapchainDescV1 swapchain_desc;
     RinGpuDxgiWindowOwnerV1 window_owner;
     RinGpuPresentationBackendV1 presentation_backend;
@@ -189,6 +220,8 @@ int main(void)
     ops.destroy_buffer = injected_destroy_buffer;
     ops.create_image = injected_create_image;
     ops.destroy_image = injected_destroy_image;
+    ops.create_sampler = injected_create_sampler;
+    ops.destroy_sampler = injected_destroy_sampler;
     ops.submit_commands = injected_submit;
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
@@ -352,6 +385,35 @@ int main(void)
               delegated_image_create_calls == 2u);
         CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
         CHECK(destroyed_image_calls == destroys_before + 2u);
+    }
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.abi_version = RIN_GPU_ABI_VERSION;
+    sampler_desc.struct_size = sizeof(sampler_desc);
+    sampler_desc.min_filter = RIN_GPU_SAMPLER_FILTER_LINEAR;
+    sampler_desc.mag_filter = RIN_GPU_SAMPLER_FILTER_LINEAR;
+    sampler_desc.mip_filter = RIN_GPU_SAMPLER_MIP_FILTER_NONE;
+    sampler_desc.address_u = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.address_v = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.address_w = RIN_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+    sampler_desc.max_anisotropy = 1u;
+    {
+        RinGpuHandle sampler = UINT64_MAX;
+        uint32_t destroys_before = destroyed_sampler_calls;
+        fail_next_partial_sampler_create = 1u;
+        sampler_create_calls = 0u;
+        delegated_sampler_create_calls = 0u;
+        CHECK(rindx_d3d11_create_sampler(&device, &sampler_desc, &sampler) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(sampler == 0u && sampler_create_calls == 1u &&
+              delegated_sampler_create_calls == 1u);
+        CHECK(destroyed_sampler_calls == destroys_before + 1u);
+        CHECK(rindx_d3d11_create_sampler(&device, &sampler_desc, &sampler) ==
+              RIN_GPU_OK);
+        CHECK(sampler != 0u && sampler_create_calls == 2u &&
+              delegated_sampler_create_calls == 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, sampler) == RIN_GPU_OK);
+        CHECK(destroyed_sampler_calls == destroys_before + 2u);
     }
 
     CHECK(rindx_d3d11_create_context(&device, &immediate_context) ==
