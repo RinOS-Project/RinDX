@@ -31,10 +31,47 @@ static uint32_t sampler_create_calls;
 static uint32_t delegated_sampler_create_calls;
 static uint32_t fail_next_partial_sampler_create;
 static uint32_t destroyed_sampler_calls;
+static uint32_t shader_module_create_calls;
+static uint32_t delegated_shader_module_create_calls;
+static uint32_t fail_next_partial_shader_module_create;
+static uint32_t destroyed_shader_module_calls;
+static uint32_t compute_pipeline_create_calls;
+static uint32_t delegated_compute_pipeline_create_calls;
+static uint32_t fail_next_partial_compute_pipeline_create;
+static uint32_t destroyed_compute_pipeline_calls;
+static uint32_t compute_bind_group_create_calls;
+static uint32_t delegated_compute_bind_group_create_calls;
+static uint32_t fail_next_partial_compute_bind_group_create;
+static uint32_t destroyed_compute_bind_group_calls;
 static uint32_t submit_calls;
 static uint32_t fail_next_submit;
 static uint32_t wait_calls;
 static uint32_t fail_next_wait;
+
+typedef struct FailureComputeShader {
+    RinShaderHeaderV1 header;
+    RinShaderInstructionV1 instruction;
+} FailureComputeShader;
+
+static void make_compute_shader(FailureComputeShader* shader)
+{
+    memset(shader, 0, sizeof(*shader));
+    shader->header.magic = RIN_SHADER_MAGIC;
+    shader->header.version = RIN_SHADER_IR_VERSION;
+    shader->header.header_size = sizeof(shader->header);
+    shader->header.stage = RIN_SHADER_STAGE_COMPUTE;
+    shader->header.instruction_count = 1u;
+    shader->header.register_count = 1u;
+    shader->header.workgroup_x = 1u;
+    shader->header.workgroup_y = 1u;
+    shader->header.workgroup_z = 1u;
+    shader->header.total_size = sizeof(*shader);
+    shader->instruction.opcode = RIN_SHADER_OP_RETURN;
+    shader->instruction.destination = RIN_SHADER_UNUSED;
+    shader->instruction.source0 = RIN_SHADER_UNUSED;
+    shader->instruction.source1 = RIN_SHADER_UNUSED;
+    shader->instruction.resource = RIN_SHADER_UNUSED;
+}
 
 static int injected_create_buffer(void* context,
                                  const RinGpuBufferDescV1* desc,
@@ -123,6 +160,91 @@ static void injected_destroy_sampler(void* context, uint64_t cookie)
     delegated_ops->destroy_sampler(context, cookie);
 }
 
+static int injected_create_shader_module(
+    void* context, const void* shader_ir, uint64_t shader_size,
+    const RinShaderInfoV1* info, uint64_t* cookie)
+{
+    int result;
+    if (!context || !shader_ir || !info || !cookie || !delegated_ops ||
+        !delegated_ops->create_shader_module)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++shader_module_create_calls;
+    result = delegated_ops->create_shader_module(
+        context, shader_ir, shader_size, info, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_shader_module_create_calls;
+    if (fail_next_partial_shader_module_create != 0u) {
+        --fail_next_partial_shader_module_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_shader_module(void* context, uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_shader_module) return;
+    ++destroyed_shader_module_calls;
+    delegated_ops->destroy_shader_module(context, cookie);
+}
+
+static int injected_create_compute_pipeline(
+    void* context, uint64_t shader_cookie,
+    const RinShaderInfoV1* shader_info, uint64_t* cookie)
+{
+    int result;
+    if (!context || shader_cookie == 0u || !shader_info || !cookie ||
+        !delegated_ops || !delegated_ops->create_compute_pipeline)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++compute_pipeline_create_calls;
+    result = delegated_ops->create_compute_pipeline(
+        context, shader_cookie, shader_info, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_compute_pipeline_create_calls;
+    if (fail_next_partial_compute_pipeline_create != 0u) {
+        --fail_next_partial_compute_pipeline_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_compute_pipeline(void* context,
+                                              uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_compute_pipeline) return;
+    ++destroyed_compute_pipeline_calls;
+    delegated_ops->destroy_compute_pipeline(context, cookie);
+}
+
+static int injected_create_compute_bind_group(
+    void* context, uint64_t pipeline_cookie,
+    const RinGpuBackendBufferBindingV1* bindings, uint32_t binding_count,
+    uint64_t* cookie)
+{
+    int result;
+    if (!context || pipeline_cookie == 0u || (binding_count != 0u && !bindings) ||
+        !cookie || !delegated_ops ||
+        !delegated_ops->create_compute_bind_group)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++compute_bind_group_create_calls;
+    result = delegated_ops->create_compute_bind_group(
+        context, pipeline_cookie, bindings, binding_count, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_compute_bind_group_create_calls;
+    if (fail_next_partial_compute_bind_group_create != 0u) {
+        --fail_next_partial_compute_bind_group_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_compute_bind_group(void* context,
+                                                uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_compute_bind_group) return;
+    ++destroyed_compute_bind_group_calls;
+    delegated_ops->destroy_compute_bind_group(context, cookie);
+}
+
 static int injected_submit(void* context,
                            const RinGpuBackendCommandV1* commands,
                            uint32_t command_count)
@@ -189,6 +311,7 @@ int main(void)
     RinGpuBufferDescV1 buffer_desc;
     RinGpuImageDescV1 image_desc;
     RinGpuSamplerDescV1 sampler_desc;
+    FailureComputeShader compute_shader;
     RinGpuDxgiSwapchainDescV1 swapchain_desc;
     RinGpuDxgiWindowOwnerV1 window_owner;
     RinGpuPresentationBackendV1 presentation_backend;
@@ -197,6 +320,9 @@ int main(void)
     RinDxD3d11Device swapchain_device;
     RinGpuHandle buffer = UINT64_C(0xdeadbeef);
     RinGpuHandle image = UINT64_C(0xdeadbeef);
+    RinGpuHandle shader = 0u;
+    RinGpuHandle compute_pipeline = 0u;
+    RinGpuHandle compute_bind_group = 0u;
     RinGpuHandle command_list = 0u;
     uint64_t fence_value = UINT64_MAX;
     const uint32_t feature_level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
@@ -213,6 +339,9 @@ int main(void)
     delegated_ops = ringpu_software_backend_ops();
     CHECK(delegated_ops != NULL && delegated_ops->create_buffer != NULL &&
           delegated_ops->create_image != NULL &&
+          delegated_ops->create_shader_module != NULL &&
+          delegated_ops->create_compute_pipeline != NULL &&
+          delegated_ops->create_compute_bind_group != NULL &&
           delegated_ops->submit_commands != NULL &&
           delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
@@ -222,6 +351,12 @@ int main(void)
     ops.destroy_image = injected_destroy_image;
     ops.create_sampler = injected_create_sampler;
     ops.destroy_sampler = injected_destroy_sampler;
+    ops.create_shader_module = injected_create_shader_module;
+    ops.destroy_shader_module = injected_destroy_shader_module;
+    ops.create_compute_pipeline = injected_create_compute_pipeline;
+    ops.destroy_compute_pipeline = injected_destroy_compute_pipeline;
+    ops.create_compute_bind_group = injected_create_compute_bind_group;
+    ops.destroy_compute_bind_group = injected_destroy_compute_bind_group;
     ops.submit_commands = injected_submit;
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
@@ -415,6 +550,80 @@ int main(void)
         CHECK(rindx_d3d11_destroy_object(&device, sampler) == RIN_GPU_OK);
         CHECK(destroyed_sampler_calls == destroys_before + 2u);
     }
+
+    make_compute_shader(&compute_shader);
+    {
+        uint32_t destroys_before = destroyed_shader_module_calls;
+        fail_next_partial_shader_module_create = 1u;
+        shader_module_create_calls = 0u;
+        delegated_shader_module_create_calls = 0u;
+        shader = UINT64_MAX;
+        CHECK(rindx_d3d11_create_shader(
+                  &device, &compute_shader, compute_shader.header.total_size,
+                  &shader) == RIN_GPU_ERROR_BACKEND);
+        CHECK(shader == 0u && shader_module_create_calls == 1u &&
+              delegated_shader_module_create_calls == 1u);
+        CHECK(destroyed_shader_module_calls == destroys_before + 1u);
+        CHECK(rindx_d3d11_create_shader(
+                  &device, &compute_shader, compute_shader.header.total_size,
+                  &shader) == RIN_GPU_OK);
+        CHECK(shader != 0u && shader_module_create_calls == 2u &&
+              delegated_shader_module_create_calls == 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, shader) == RIN_GPU_OK);
+        CHECK(destroyed_shader_module_calls == destroys_before + 2u);
+    }
+
+    CHECK(rindx_d3d11_create_shader(
+              &device, &compute_shader, compute_shader.header.total_size,
+              &shader) == RIN_GPU_OK);
+    {
+        uint32_t destroys_before = destroyed_compute_pipeline_calls;
+        fail_next_partial_compute_pipeline_create = 1u;
+        compute_pipeline_create_calls = 0u;
+        delegated_compute_pipeline_create_calls = 0u;
+        compute_pipeline = UINT64_MAX;
+        CHECK(rindx_d3d11_create_compute_pipeline(
+                  &device, shader, &compute_pipeline) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(compute_pipeline == 0u && compute_pipeline_create_calls == 1u &&
+              delegated_compute_pipeline_create_calls == 1u);
+        CHECK(destroyed_compute_pipeline_calls == destroys_before + 1u);
+        CHECK(rindx_d3d11_create_compute_pipeline(
+                  &device, shader, &compute_pipeline) == RIN_GPU_OK);
+        CHECK(compute_pipeline != 0u && compute_pipeline_create_calls == 2u &&
+              delegated_compute_pipeline_create_calls == 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, compute_pipeline) ==
+              RIN_GPU_OK);
+        CHECK(destroyed_compute_pipeline_calls == destroys_before + 2u);
+    }
+
+    CHECK(rindx_d3d11_create_compute_pipeline(
+              &device, shader, &compute_pipeline) == RIN_GPU_OK);
+    {
+        uint32_t destroys_before = destroyed_compute_bind_group_calls;
+        fail_next_partial_compute_bind_group_create = 1u;
+        compute_bind_group_create_calls = 0u;
+        delegated_compute_bind_group_create_calls = 0u;
+        compute_bind_group = UINT64_MAX;
+        CHECK(rindx_d3d11_create_compute_bind_group(
+                  &device, compute_pipeline, NULL, 0u,
+                  &compute_bind_group) == RIN_GPU_ERROR_BACKEND);
+        CHECK(compute_bind_group == 0u &&
+              compute_bind_group_create_calls == 1u &&
+              delegated_compute_bind_group_create_calls == 1u);
+        CHECK(destroyed_compute_bind_group_calls == destroys_before + 1u);
+        CHECK(rindx_d3d11_create_compute_bind_group(
+                  &device, compute_pipeline, NULL, 0u,
+                  &compute_bind_group) == RIN_GPU_OK);
+        CHECK(compute_bind_group != 0u &&
+              compute_bind_group_create_calls == 2u &&
+              delegated_compute_bind_group_create_calls == 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, compute_bind_group) ==
+              RIN_GPU_OK);
+        CHECK(destroyed_compute_bind_group_calls == destroys_before + 2u);
+    }
+    CHECK(rindx_d3d11_destroy_object(&device, compute_pipeline) == RIN_GPU_OK);
+    CHECK(rindx_d3d11_destroy_object(&device, shader) == RIN_GPU_OK);
 
     CHECK(rindx_d3d11_create_context(&device, &immediate_context) ==
           RIN_GPU_OK);
