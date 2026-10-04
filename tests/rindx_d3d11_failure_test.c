@@ -43,6 +43,12 @@ static uint32_t compute_bind_group_create_calls;
 static uint32_t delegated_compute_bind_group_create_calls;
 static uint32_t fail_next_partial_compute_bind_group_create;
 static uint32_t destroyed_compute_bind_group_calls;
+static uint32_t fail_next_partial_buffer_bind;
+static uint32_t buffer_bind_calls;
+static uint32_t delegated_buffer_bind_calls;
+static uint32_t fail_next_partial_image_bind;
+static uint32_t image_bind_calls;
+static uint32_t delegated_image_bind_calls;
 static uint32_t submit_calls;
 static uint32_t fail_next_submit;
 static uint32_t wait_calls;
@@ -132,6 +138,52 @@ static void injected_destroy_image(void* context, uint64_t cookie)
     if (!delegated_ops || !delegated_ops->destroy_image) return;
     ++destroyed_image_calls;
     delegated_ops->destroy_image(context, cookie);
+}
+
+static int injected_bind_buffer_memory(
+    void* context, uint64_t buffer_cookie, const RinGpuBufferDescV1* desc,
+    void* allocation, uint64_t allocation_size, uint64_t offset_bytes,
+    uint64_t* bound_cookie)
+{
+    int result;
+    if (!context || buffer_cookie == 0u || !desc || !allocation ||
+        !bound_cookie || !delegated_ops ||
+        !delegated_ops->bind_buffer_memory)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++buffer_bind_calls;
+    result = delegated_ops->bind_buffer_memory(
+        context, buffer_cookie, desc, allocation, allocation_size,
+        offset_bytes, bound_cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_buffer_bind_calls;
+    if (fail_next_partial_buffer_bind != 0u) {
+        --fail_next_partial_buffer_bind;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static int injected_bind_image_memory(
+    void* context, uint64_t image_cookie, const RinGpuImageDescV1* desc,
+    uint64_t resource_size, void* allocation, uint64_t allocation_size,
+    uint64_t offset_bytes, uint64_t* bound_cookie)
+{
+    int result;
+    if (!context || image_cookie == 0u || !desc || resource_size == 0u ||
+        !allocation || !bound_cookie || !delegated_ops ||
+        !delegated_ops->bind_image_memory)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++image_bind_calls;
+    result = delegated_ops->bind_image_memory(
+        context, image_cookie, desc, resource_size, allocation,
+        allocation_size, offset_bytes, bound_cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_image_bind_calls;
+    if (fail_next_partial_image_bind != 0u) {
+        --fail_next_partial_image_bind;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
 }
 
 static int injected_create_sampler(void* context,
@@ -310,6 +362,8 @@ int main(void)
     RinDxD3d11Context deferred_context;
     RinGpuBufferDescV1 buffer_desc;
     RinGpuImageDescV1 image_desc;
+    RinGpuMemoryDescV1 memory_desc;
+    RinGpuResourceMemoryBindingV1 memory_binding;
     RinGpuSamplerDescV1 sampler_desc;
     FailureComputeShader compute_shader;
     RinGpuDxgiSwapchainDescV1 swapchain_desc;
@@ -320,6 +374,7 @@ int main(void)
     RinDxD3d11Device swapchain_device;
     RinGpuHandle buffer = UINT64_C(0xdeadbeef);
     RinGpuHandle image = UINT64_C(0xdeadbeef);
+    RinGpuHandle memory = 0u;
     RinGpuHandle shader = 0u;
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
@@ -349,6 +404,8 @@ int main(void)
     ops.destroy_buffer = injected_destroy_buffer;
     ops.create_image = injected_create_image;
     ops.destroy_image = injected_destroy_image;
+    ops.bind_buffer_memory = injected_bind_buffer_memory;
+    ops.bind_image_memory = injected_bind_image_memory;
     ops.create_sampler = injected_create_sampler;
     ops.destroy_sampler = injected_destroy_sampler;
     ops.create_shader_module = injected_create_shader_module;
@@ -521,6 +578,65 @@ int main(void)
         CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
         CHECK(destroyed_image_calls == destroys_before + 2u);
     }
+
+    memset(&memory_desc, 0, sizeof(memory_desc));
+    memory_desc.abi_version = RIN_GPU_ABI_VERSION;
+    memory_desc.struct_size = sizeof(memory_desc);
+    memory_desc.size_bytes = UINT64_C(4096);
+    memory_desc.alignment = UINT64_C(4096);
+    memset(&memory_binding, 0, sizeof(memory_binding));
+    memory_binding.abi_version = RIN_GPU_ABI_VERSION;
+    memory_binding.struct_size = sizeof(memory_binding);
+    memory_binding.size_bytes = UINT64_C(256);
+    CHECK(ringpu_runtime_create_memory(device.runtime, &memory_desc,
+                                       &memory) == RIN_GPU_OK);
+    memory_binding.memory = memory;
+    {
+        uint32_t destroys_before = destroyed_buffer_calls;
+        CHECK(rindx_d3d11_create_buffer(&device, &buffer_desc, &buffer) ==
+              RIN_GPU_OK);
+        fail_next_partial_buffer_bind = 1u;
+        buffer_bind_calls = 0u;
+        delegated_buffer_bind_calls = 0u;
+        CHECK(ringpu_runtime_bind_buffer_memory(
+                  device.runtime, buffer, &memory_binding) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(buffer_bind_calls == 1u && delegated_buffer_bind_calls == 1u);
+        CHECK(destroyed_buffer_calls == destroys_before + 1u);
+        CHECK(ringpu_runtime_bind_buffer_memory(
+                  device.runtime, buffer, &memory_binding) == RIN_GPU_OK);
+        CHECK(buffer_bind_calls == 2u && delegated_buffer_bind_calls == 2u);
+        CHECK(destroyed_buffer_calls == destroys_before + 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, buffer) == RIN_GPU_OK);
+        CHECK(destroyed_buffer_calls == destroys_before + 3u);
+    }
+    CHECK(rindx_d3d11_destroy_object(&device, memory) == RIN_GPU_OK);
+    memory = 0u;
+
+    CHECK(ringpu_runtime_create_memory(device.runtime, &memory_desc,
+                                       &memory) == RIN_GPU_OK);
+    memory_binding.memory = memory;
+    memory_binding.size_bytes = memory_desc.size_bytes;
+    {
+        uint32_t destroys_before = destroyed_image_calls;
+        CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
+              RIN_GPU_OK);
+        fail_next_partial_image_bind = 1u;
+        image_bind_calls = 0u;
+        delegated_image_bind_calls = 0u;
+        CHECK(ringpu_runtime_bind_image_memory(
+                  device.runtime, image, &memory_binding) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(image_bind_calls == 1u && delegated_image_bind_calls == 1u);
+        CHECK(destroyed_image_calls == destroys_before + 1u);
+        CHECK(ringpu_runtime_bind_image_memory(
+                  device.runtime, image, &memory_binding) == RIN_GPU_OK);
+        CHECK(image_bind_calls == 2u && delegated_image_bind_calls == 2u);
+        CHECK(destroyed_image_calls == destroys_before + 2u);
+        CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
+        CHECK(destroyed_image_calls == destroys_before + 3u);
+    }
+    CHECK(rindx_d3d11_destroy_object(&device, memory) == RIN_GPU_OK);
 
     memset(&sampler_desc, 0, sizeof(sampler_desc));
     sampler_desc.abi_version = RIN_GPU_ABI_VERSION;
