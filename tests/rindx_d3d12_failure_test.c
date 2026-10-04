@@ -47,6 +47,14 @@ static uint32_t compute_bind_group_create_calls;
 static uint32_t delegated_compute_bind_group_create_calls;
 static uint32_t fail_next_partial_compute_bind_group_create;
 static uint32_t destroyed_compute_bind_group_calls;
+static uint32_t fail_next_partial_graphics_pipeline_create;
+static uint32_t graphics_pipeline_create_calls;
+static uint32_t delegated_graphics_pipeline_create_calls;
+static uint32_t destroyed_graphics_pipeline_calls;
+static uint32_t fail_next_partial_graphics_bind_group_create;
+static uint32_t graphics_bind_group_create_calls;
+static uint32_t delegated_graphics_bind_group_create_calls;
+static uint32_t destroyed_graphics_bind_group_calls;
 static uint32_t fail_next_partial_buffer_bind;
 static uint32_t buffer_bind_calls;
 static uint32_t delegated_buffer_bind_calls;
@@ -58,6 +66,88 @@ typedef struct FailureComputeShader {
     RinShaderHeaderV1 header;
     RinShaderInstructionV1 instruction;
 } FailureComputeShader;
+
+typedef struct FailureGraphicsShader {
+    RinShaderHeaderV1 header;
+    RinShaderInstructionV1 instructions[13];
+} FailureGraphicsShader;
+
+static void set_shader_instruction(RinShaderInstructionV1* instruction,
+                                   uint16_t opcode, uint16_t destination,
+                                   uint16_t source0, uint16_t source1,
+                                   uint16_t resource, uint32_t immediate)
+{
+    memset(instruction, 0, sizeof(*instruction));
+    instruction->opcode = opcode;
+    instruction->destination = destination;
+    instruction->source0 = source0;
+    instruction->source1 = source1;
+    instruction->resource = resource;
+    instruction->immediate = immediate;
+}
+
+static void make_graphics_shader(FailureGraphicsShader* shader,
+                                 uint32_t stage)
+{
+    static const uint32_t position_bits[4] = {
+        UINT32_C(0), UINT32_C(0), UINT32_C(0), UINT32_C(0x3f800000)};
+    static const uint32_t color_bits[4] = {
+        UINT32_C(0x3f800000), UINT32_C(0x3e800000), UINT32_C(0),
+        UINT32_C(0x3f800000)};
+    uint32_t index;
+
+    memset(shader, 0, sizeof(*shader));
+    shader->header.magic = RIN_SHADER_MAGIC;
+    shader->header.version = RIN_SHADER_IR_VERSION;
+    shader->header.header_size = sizeof(shader->header);
+    shader->header.stage = stage;
+    shader->header.output_count = 4u;
+    if (stage == RIN_SHADER_STAGE_VERTEX) {
+        shader->header.instruction_count = 9u;
+        shader->header.register_count = 4u;
+        for (index = 0u; index < 4u; ++index) {
+            set_shader_instruction(&shader->instructions[index],
+                RIN_SHADER_OP_CONST_F32, (uint16_t)index, RIN_SHADER_UNUSED,
+                RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, position_bits[index]);
+            set_shader_instruction(&shader->instructions[index + 4u],
+                RIN_SHADER_OP_STORE_OUTPUT_F32, RIN_SHADER_UNUSED,
+                (uint16_t)index, RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, index);
+        }
+        set_shader_instruction(&shader->instructions[8], RIN_SHADER_OP_RETURN,
+            RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, RIN_SHADER_UNUSED,
+            RIN_SHADER_UNUSED, 0u);
+    } else {
+        shader->header.instruction_count = 13u;
+        shader->header.register_count = 7u;
+        shader->header.resource_count = 1u;
+        set_shader_instruction(&shader->instructions[0],
+            RIN_SHADER_OP_CONST_I32, 0u, RIN_SHADER_UNUSED,
+            RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
+        set_shader_instruction(&shader->instructions[1],
+            RIN_SHADER_OP_CONST_I32, 1u, RIN_SHADER_UNUSED,
+            RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 0u);
+        set_shader_instruction(&shader->instructions[2],
+            RIN_SHADER_OP_CONST_I32, 2u, RIN_SHADER_UNUSED,
+            RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, 123u);
+        set_shader_instruction(&shader->instructions[3],
+            RIN_SHADER_OP_STORE_IMAGE_2D_I32, 2u, 0u, 1u, 0u, 0u);
+        for (index = 0u; index < 4u; ++index) {
+            set_shader_instruction(&shader->instructions[index + 4u],
+                RIN_SHADER_OP_CONST_F32, (uint16_t)(index + 3u),
+                RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, RIN_SHADER_UNUSED,
+                color_bits[index]);
+            set_shader_instruction(&shader->instructions[index + 8u],
+                RIN_SHADER_OP_STORE_OUTPUT_F32, RIN_SHADER_UNUSED,
+                (uint16_t)(index + 3u), RIN_SHADER_UNUSED, RIN_SHADER_UNUSED,
+                index);
+        }
+        set_shader_instruction(&shader->instructions[12], RIN_SHADER_OP_RETURN,
+            RIN_SHADER_UNUSED, RIN_SHADER_UNUSED, RIN_SHADER_UNUSED,
+            RIN_SHADER_UNUSED, 0u);
+    }
+    shader->header.total_size = sizeof(shader->header) +
+        shader->header.instruction_count * sizeof(shader->instructions[0]);
+}
 
 static void make_compute_shader(FailureComputeShader* shader)
 {
@@ -297,6 +387,67 @@ static void injected_destroy_compute_bind_group(void* context,
     delegated_ops->destroy_compute_bind_group(context, cookie);
 }
 
+static int injected_create_graphics_pipeline(
+    void* context, uint64_t vertex_cookie,
+    const RinShaderInfoV1* vertex_info, uint64_t fragment_cookie,
+    const RinShaderInfoV1* fragment_info,
+    const RinGpuBackendGraphicsPipelineDescV1* desc, uint64_t* cookie)
+{
+    int result;
+    if (!context || vertex_cookie == 0u || !vertex_info ||
+        fragment_cookie == 0u || !fragment_info || !desc || !cookie ||
+        !delegated_ops || !delegated_ops->create_graphics_pipeline)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++graphics_pipeline_create_calls;
+    result = delegated_ops->create_graphics_pipeline(
+        context, vertex_cookie, vertex_info, fragment_cookie, fragment_info,
+        desc, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_graphics_pipeline_create_calls;
+    if (fail_next_partial_graphics_pipeline_create != 0u) {
+        --fail_next_partial_graphics_pipeline_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_graphics_pipeline(void* context, uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_graphics_pipeline) return;
+    ++destroyed_graphics_pipeline_calls;
+    delegated_ops->destroy_graphics_pipeline(context, cookie);
+}
+
+static int injected_create_graphics_bind_group(
+    void* context, uint64_t pipeline_cookie,
+    const RinGpuBackendGraphicsBindingV1* bindings, uint32_t binding_count,
+    uint64_t* cookie)
+{
+    int result;
+    if (!context || pipeline_cookie == 0u || !bindings || binding_count == 0u ||
+        !cookie || !delegated_ops ||
+        !delegated_ops->create_graphics_bind_group)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    ++graphics_bind_group_create_calls;
+    result = delegated_ops->create_graphics_bind_group(
+        context, pipeline_cookie, bindings, binding_count, cookie);
+    if (result != RIN_GPU_OK) return result;
+    ++delegated_graphics_bind_group_create_calls;
+    if (fail_next_partial_graphics_bind_group_create != 0u) {
+        --fail_next_partial_graphics_bind_group_create;
+        return RIN_GPU_ERROR_BACKEND;
+    }
+    return result;
+}
+
+static void injected_destroy_graphics_bind_group(void* context,
+                                                uint64_t cookie)
+{
+    if (!delegated_ops || !delegated_ops->destroy_graphics_bind_group) return;
+    ++destroyed_graphics_bind_group_calls;
+    delegated_ops->destroy_graphics_bind_group(context, cookie);
+}
+
 static int injected_submit(void* context,
                            const RinGpuBackendCommandV1* commands,
                            uint32_t command_count)
@@ -366,6 +517,10 @@ int main(void)
     RinGpuResourceMemoryBindingV1 memory_binding;
     RinGpuSamplerDescV1 sampler_desc;
     FailureComputeShader compute_shader;
+    FailureGraphicsShader vertex_graphics_shader;
+    FailureGraphicsShader fragment_graphics_shader;
+    RinGpuGraphicsPipelineNativeDescV2 graphics_pipeline_desc;
+    RinGpuGraphicsBindingV1 graphics_binding;
     RinGpuDxgiSwapchainDescV1 swapchain_desc;
     RinGpuDxgiWindowOwnerV1 window_owner;
     RinGpuPresentationBackendV1 presentation_backend;
@@ -378,6 +533,11 @@ int main(void)
     RinGpuHandle shader = 0u;
     RinGpuHandle compute_pipeline = 0u;
     RinGpuHandle compute_bind_group = 0u;
+    RinGpuHandle vertex_graphics_module = 0u;
+    RinGpuHandle fragment_graphics_module = 0u;
+    RinGpuHandle graphics_pipeline = 0u;
+    RinGpuHandle graphics_bind_group = 0u;
+    RinGpuHandle graphics_storage_image = 0u;
     const uint32_t feature_level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
     const uint64_t untouched_fence_value = UINT64_C(0xfeedface);
     uint64_t fence_value = untouched_fence_value;
@@ -399,6 +559,8 @@ int main(void)
     CHECK(delegated_ops->create_shader_module != NULL);
     CHECK(delegated_ops->create_compute_pipeline != NULL);
     CHECK(delegated_ops->create_compute_bind_group != NULL);
+    CHECK(delegated_ops->create_graphics_pipeline != NULL);
+    CHECK(delegated_ops->create_graphics_bind_group != NULL);
     CHECK(delegated_ops->wait_for_completion != NULL);
     ops = *delegated_ops;
     ops.create_buffer = injected_create_buffer;
@@ -415,6 +577,10 @@ int main(void)
     ops.destroy_compute_pipeline = injected_destroy_compute_pipeline;
     ops.create_compute_bind_group = injected_create_compute_bind_group;
     ops.destroy_compute_bind_group = injected_destroy_compute_bind_group;
+    ops.create_graphics_pipeline = injected_create_graphics_pipeline;
+    ops.destroy_graphics_pipeline = injected_destroy_graphics_pipeline;
+    ops.create_graphics_bind_group = injected_create_graphics_bind_group;
+    ops.destroy_graphics_bind_group = injected_destroy_graphics_bind_group;
     ops.submit_commands = injected_submit;
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
@@ -672,6 +838,111 @@ int main(void)
         CHECK(rindx_d3d12_destroy_object(&device, sampler) == RIN_GPU_OK);
         CHECK(destroyed_sampler_calls == destroys_before + 2u);
     }
+
+    make_graphics_shader(&vertex_graphics_shader, RIN_SHADER_STAGE_VERTEX);
+    make_graphics_shader(&fragment_graphics_shader, RIN_SHADER_STAGE_FRAGMENT);
+    CHECK(rindx_d3d12_create_shader(
+              &device, &vertex_graphics_shader,
+              vertex_graphics_shader.header.total_size,
+              &vertex_graphics_module) == RIN_GPU_OK);
+    CHECK(rindx_d3d12_create_shader(
+              &device, &fragment_graphics_shader,
+              fragment_graphics_shader.header.total_size,
+              &fragment_graphics_module) == RIN_GPU_OK);
+    memset(&graphics_pipeline_desc, 0, sizeof(graphics_pipeline_desc));
+    graphics_pipeline_desc.base.abi_version = RIN_GPU_ABI_VERSION;
+    graphics_pipeline_desc.base.struct_size = sizeof(graphics_pipeline_desc);
+    graphics_pipeline_desc.base.vertex_shader = vertex_graphics_module;
+    graphics_pipeline_desc.base.fragment_shader = fragment_graphics_module;
+    graphics_pipeline_desc.base.color_format = RIN_GPU_FORMAT_RGBA8_UNORM;
+    graphics_pipeline_desc.base.primitive_topology =
+        RIN_GPU_PRIMITIVE_POINT_LIST;
+    graphics_pipeline_desc.base.position_output_location = 0u;
+    graphics_pipeline_desc.base.color_write_mask = RIN_GPU_COLOR_WRITE_ALL;
+    graphics_pipeline_desc.base.blend_enabled = 1u;
+    graphics_pipeline_desc.base.source_color_factor = RIN_GPU_BLEND_ONE;
+    graphics_pipeline_desc.base.destination_color_factor = RIN_GPU_BLEND_ZERO;
+    graphics_pipeline_desc.base.color_operation = RIN_GPU_BLEND_ADD;
+    graphics_pipeline_desc.base.source_alpha_factor = RIN_GPU_BLEND_ONE;
+    graphics_pipeline_desc.base.destination_alpha_factor = RIN_GPU_BLEND_ZERO;
+    graphics_pipeline_desc.base.alpha_operation = RIN_GPU_BLEND_ADD;
+    graphics_pipeline_desc.base.cull_mode = RIN_GPU_CULL_NONE;
+    graphics_pipeline_desc.base.front_face =
+        RIN_GPU_FRONT_FACE_COUNTER_CLOCKWISE;
+    {
+        uint32_t destroys_before = destroyed_graphics_pipeline_calls;
+        fail_next_partial_graphics_pipeline_create = 1u;
+        graphics_pipeline_create_calls = 0u;
+        delegated_graphics_pipeline_create_calls = 0u;
+        graphics_pipeline = UINT64_MAX;
+        CHECK(rindx_d3d12_create_graphics_pipeline(
+                  &device, &graphics_pipeline_desc, NULL, 0u, NULL, 0u,
+                  NULL, 0u, &graphics_pipeline) == RIN_GPU_ERROR_BACKEND);
+        CHECK(graphics_pipeline == 0u &&
+              graphics_pipeline_create_calls == 1u &&
+              delegated_graphics_pipeline_create_calls == 1u);
+        CHECK(destroyed_graphics_pipeline_calls == destroys_before + 1u);
+        CHECK(rindx_d3d12_create_graphics_pipeline(
+                  &device, &graphics_pipeline_desc, NULL, 0u, NULL, 0u,
+                  NULL, 0u, &graphics_pipeline) == RIN_GPU_OK);
+        CHECK(graphics_pipeline != 0u &&
+              graphics_pipeline_create_calls == 2u &&
+              delegated_graphics_pipeline_create_calls == 2u);
+        CHECK(destroyed_graphics_pipeline_calls == destroys_before + 1u);
+    }
+    memset(&image_desc, 0, sizeof(image_desc));
+    image_desc.abi_version = RIN_GPU_ABI_VERSION;
+    image_desc.struct_size = sizeof(image_desc);
+    image_desc.dimension = RIN_GPU_IMAGE_DIMENSION_2D;
+    image_desc.format = RIN_GPU_FORMAT_R8_UNORM;
+    image_desc.width = 1u;
+    image_desc.height = 1u;
+    image_desc.depth = 1u;
+    image_desc.array_layers = 1u;
+    image_desc.mip_levels = 1u;
+    image_desc.sample_count = 1u;
+    image_desc.usage = RIN_GPU_IMAGE_STORAGE;
+    CHECK(rindx_d3d12_create_texture2d(&device, &image_desc,
+                                       &graphics_storage_image) == RIN_GPU_OK);
+    memset(&graphics_binding, 0, sizeof(graphics_binding));
+    graphics_binding.abi_version = RIN_GPU_ABI_VERSION;
+    graphics_binding.struct_size = sizeof(graphics_binding);
+    graphics_binding.binding = 0u;
+    graphics_binding.kind = RIN_SHADER_RESOURCE_STORAGE_IMAGE;
+    graphics_binding.access = RIN_GPU_RESOURCE_WRITE;
+    graphics_binding.resource = graphics_storage_image;
+    {
+        uint32_t destroys_before = destroyed_graphics_bind_group_calls;
+        fail_next_partial_graphics_bind_group_create = 1u;
+        graphics_bind_group_create_calls = 0u;
+        delegated_graphics_bind_group_create_calls = 0u;
+        graphics_bind_group = UINT64_MAX;
+        CHECK(rindx_d3d12_create_descriptor_heap(
+                  &device, graphics_pipeline, &graphics_binding, 1u,
+                  &graphics_bind_group) == RIN_GPU_ERROR_BACKEND);
+        CHECK(graphics_bind_group == 0u &&
+              graphics_bind_group_create_calls == 1u &&
+              delegated_graphics_bind_group_create_calls == 1u);
+        CHECK(destroyed_graphics_bind_group_calls == destroys_before + 1u);
+        CHECK(rindx_d3d12_create_descriptor_heap(
+                  &device, graphics_pipeline, &graphics_binding, 1u,
+                  &graphics_bind_group) == RIN_GPU_OK);
+        CHECK(graphics_bind_group != 0u &&
+              graphics_bind_group_create_calls == 2u &&
+              delegated_graphics_bind_group_create_calls == 2u);
+        CHECK(destroyed_graphics_bind_group_calls == destroys_before + 1u);
+    }
+    CHECK(rindx_d3d12_destroy_object(&device, graphics_bind_group) ==
+          RIN_GPU_OK);
+    CHECK(destroyed_graphics_bind_group_calls == 2u);
+    CHECK(rindx_d3d12_destroy_object(&device, graphics_pipeline) == RIN_GPU_OK);
+    CHECK(destroyed_graphics_pipeline_calls == 2u);
+    CHECK(rindx_d3d12_destroy_object(&device, graphics_storage_image) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, fragment_graphics_module) ==
+          RIN_GPU_OK);
+    CHECK(rindx_d3d12_destroy_object(&device, vertex_graphics_module) ==
+          RIN_GPU_OK);
 
     make_compute_shader(&compute_shader);
     {
