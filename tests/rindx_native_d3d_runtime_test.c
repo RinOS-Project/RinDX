@@ -207,15 +207,28 @@ int main(void) {
     }
     ID3D11DeviceContext_Flush(swap_context);
     CHECK_HR(IDXGISwapChain_Present(swapchain, 1u, 0u));
-    CHECK_HR(IDXGISwapChain_ResizeBuffers(swapchain, 2u, 2u, 2u,
-                                          DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
+    CHECK(IDXGISwapChain_ResizeBuffers(swapchain, 2u, 2u, 2u,
+                                      DXGI_FORMAT_R8G8B8A8_UNORM, 0u) ==
+          DXGI_ERROR_INVALID_CALL);
+    ID3D11DeviceContext_OMSetRenderTargets(swap_context, 0u, NULL, NULL);
     ID3D11RenderTargetView_Release(render_target);
     ID3D11Texture2D_Release(backbuffer);
     backbuffer = NULL;
-    CHECK_HR(IDXGISwapChain_GetBuffer(
-        swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
-    ID3D11Texture2D_Release(backbuffer);
-    backbuffer = NULL;
+    for (UINT resize_iteration = 0u; resize_iteration < 64u;
+         ++resize_iteration) {
+        const UINT width = 3u + resize_iteration;
+        const UINT height = 3u + (resize_iteration % 7u);
+        D3D11_TEXTURE2D_DESC resized_desc;
+        CHECK_HR(IDXGISwapChain_ResizeBuffers(
+            swapchain, 2u, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
+        ID3D11Texture2D_GetDesc(backbuffer, &resized_desc);
+        CHECK(resized_desc.Width == width && resized_desc.Height == height);
+        ID3D11Texture2D_Release(backbuffer);
+        backbuffer = NULL;
+        CHECK_HR(IDXGISwapChain_Present(swapchain, 1u, 0u));
+    }
     IDXGISwapChain_Release(swapchain);
     ID3D11DeviceContext_Release(swap_context);
     ID3D11Device_Release(swap_device);
@@ -280,15 +293,28 @@ int main(void) {
     ID3D12GraphicsCommandList_Release(resource_list);
     ID3D12CommandAllocator_Release(resource_allocator);
     ID3D12DescriptorHeap_Release(d3d12_swap_rtv_heap);
+    CHECK(IDXGISwapChain_ResizeBuffers(
+              d3d12_swapchain, 2u, 2u, 2u,
+              DXGI_FORMAT_R8G8B8A8_UNORM, 0u) == DXGI_ERROR_INVALID_CALL);
     ID3D12Resource_Release(d3d12_backbuffer);
     d3d12_backbuffer = NULL;
-    CHECK_HR(IDXGISwapChain_ResizeBuffers(
-        d3d12_swapchain, 2u, 2u, 2u, DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
-    CHECK_HR(IDXGISwapChain_GetBuffer(
-        d3d12_swapchain, 0u, &IID_ID3D12Resource,
-        (void**)&d3d12_backbuffer));
-    ID3D12Resource_Release(d3d12_backbuffer);
-    d3d12_backbuffer = NULL;
+    for (UINT resize_iteration = 0u; resize_iteration < 64u;
+         ++resize_iteration) {
+        const UINT width = 3u + resize_iteration;
+        const UINT height = 3u + (resize_iteration % 7u);
+        DXGI_SWAP_CHAIN_DESC resized_desc;
+        CHECK_HR(IDXGISwapChain_ResizeBuffers(
+            d3d12_swapchain, 2u, width, height,
+            DXGI_FORMAT_R8G8B8A8_UNORM, 0u));
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            d3d12_swapchain, 0u, &IID_ID3D12Resource,
+            (void**)&d3d12_backbuffer));
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &resized_desc));
+        CHECK(resized_desc.BufferDesc.Width == width &&
+              resized_desc.BufferDesc.Height == height);
+        ID3D12Resource_Release(d3d12_backbuffer);
+        d3d12_backbuffer = NULL;
+    }
     IDXGISwapChain_Release(d3d12_swapchain);
     IDXGIFactory1_Release(factory);
     resource_list = NULL;

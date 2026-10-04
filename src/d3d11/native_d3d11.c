@@ -3121,13 +3121,19 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     IDXGISwapChain* self, UINT count, UINT width, UINT height,
     DXGI_FORMAT format, UINT flags) {
     NativeD3d11Swapchain* swapchain = native_swapchain_from_interface(self);
+    RinGpuDxgiSwapchainStatusV1 current_status;
     RinGpuPresentationOutputV1 output;
     uint32_t old_count = swapchain->buffer_count;
+    uint32_t index;
     HRESULT result;
     if (count == 0u) count = swapchain->desc.BufferCount;
     if (count < RIN_GPU_DXGI_SWAPCHAIN_MIN_BUFFERS ||
         count > RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS || flags != 0u)
         return E_INVALIDARG;
+    for (index = 0u; index < swapchain->buffer_count; ++index)
+        if (swapchain->buffers[index] &&
+            swapchain->buffers[index]->references > 1)
+            return DXGI_ERROR_INVALID_CALL;
     if (width == 0u || height == 0u) {
         RECT client;
         if (!GetClientRect(swapchain->window, &client)) return E_INVALIDARG;
@@ -3136,6 +3142,14 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     }
     if (format == DXGI_FORMAT_UNKNOWN) format = swapchain->desc.BufferDesc.Format;
     if (native_dxgi_image_format(format) == 0u) return E_INVALIDARG;
+    memset(&current_status, 0, sizeof(current_status));
+    current_status.struct_size = sizeof(current_status);
+    current_status.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+    result = core_result(rin_gpu_dxgi_swapchain_get_status(
+        &swapchain->core, &current_status));
+    if (FAILED(result)) return result;
+    if (current_status.output_generation == UINT64_MAX)
+        return DXGI_ERROR_INVALID_CALL;
     native_swapchain_destroy_buffers(swapchain);
     memset(&output, 0, sizeof(output));
     output.struct_size = sizeof(output);
@@ -3146,8 +3160,8 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     output.height = height;
     output.refresh_millihertz = 60000u;
     output.format = native_dxgi_image_format(format);
-    output.output_generation = 2u;
-    output.device_generation = 1u;
+    output.output_generation = current_status.output_generation + 1u;
+    output.device_generation = current_status.device_generation;
     result = core_result(rin_gpu_dxgi_swapchain_resize_buffers(
         &swapchain->core, &output, count));
     if (FAILED(result)) return result;
