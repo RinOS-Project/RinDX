@@ -7,6 +7,8 @@
 #include <dxgi.h>
 #include <d3d12.h>
 
+#include "../dxgi/native_adapter.h"
+
 #include <rindx/d3d12.h>
 
 #include <stdlib.h>
@@ -3135,9 +3137,10 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown* adapter, D3D_FEAT
     const uint32_t level = RIN_DX_D3D12_FEATURE_LEVEL_12_0;
     NativeD3d12Device* device;
     int result;
-    (void)adapter;
     if (!device_out) return E_POINTER;
     *device_out = NULL;
+    if (!rindx_native_is_software_adapter(adapter))
+        return DXGI_ERROR_UNSUPPORTED;
     if (!IsEqualIID(iid, &IID_IUnknown) &&
         !IsEqualIID(iid, &IID_ID3D12Device)) return E_NOINTERFACE;
     if (minimum_level > D3D_FEATURE_LEVEL_12_0) return E_INVALIDARG;

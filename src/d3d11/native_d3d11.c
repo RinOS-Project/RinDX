@@ -14,6 +14,8 @@
 #define COBJMACROS
 #include <d3d11.h>
 
+#include "../dxgi/native_adapter.h"
+
 #include <rindx/d3d11.h>
 
 #include <stdlib.h>
@@ -3310,12 +3312,19 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDevice(
     const uint32_t level = RIN_DX_D3D11_FEATURE_LEVEL_11_0;
     NativeD3d11Device* device;
     int result;
-    (void)adapter;
-    (void)software;
     if (device_out) *device_out = NULL;
     if (context_out) *context_out = NULL;
-    if (sdk_version != D3D11_SDK_VERSION || driver_type == D3D_DRIVER_TYPE_SOFTWARE ||
-        !device_out) return E_INVALIDARG;
+    if (sdk_version != D3D11_SDK_VERSION || !device_out) return E_INVALIDARG;
+    if (software != NULL) return DXGI_ERROR_UNSUPPORTED;
+    if (driver_type == D3D_DRIVER_TYPE_WARP ||
+        driver_type == D3D_DRIVER_TYPE_REFERENCE) {
+        if (adapter != NULL) return E_INVALIDARG;
+    } else if (driver_type == D3D_DRIVER_TYPE_UNKNOWN) {
+        if (!rindx_native_is_software_adapter((IUnknown*)adapter))
+            return DXGI_ERROR_UNSUPPORTED;
+    } else {
+        return DXGI_ERROR_UNSUPPORTED;
+    }
     if (feature_count != 0u && (!feature_levels ||
         feature_levels[0] != D3D_FEATURE_LEVEL_11_0)) return E_INVALIDARG;
     native_surface_init(&surface);

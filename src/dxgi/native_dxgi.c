@@ -8,6 +8,8 @@
 #include <d3d11.h>
 #include <d3d12.h>
 
+#include "native_adapter_ids.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -238,8 +240,8 @@ static HRESULT WINAPI native_adapter_get_desc(
     if (!out) return E_POINTER;
     memset(out, 0, sizeof(*out));
     wcscpy_s(out->Description, ARRAYSIZE(out->Description), L"RinDX software");
-    out->VendorId = 0x52494e44u;
-    out->DeviceId = 0x00000001u;
+    out->VendorId = RINDX_NATIVE_SOFTWARE_ADAPTER_VENDOR_ID;
+    out->DeviceId = RINDX_NATIVE_SOFTWARE_ADAPTER_DEVICE_ID;
     out->DedicatedSystemMemory = 256u * 1024u * 1024u;
     out->SharedSystemMemory = 256u * 1024u * 1024u;
     return S_OK;
@@ -257,8 +259,8 @@ static HRESULT WINAPI native_adapter_get_desc1(
     if (!out) return E_POINTER;
     memset(out, 0, sizeof(*out));
     wcscpy_s(out->Description, ARRAYSIZE(out->Description), L"RinDX software");
-    out->VendorId = 0x52494e44u;
-    out->DeviceId = 0x00000001u;
+    out->VendorId = RINDX_NATIVE_SOFTWARE_ADAPTER_VENDOR_ID;
+    out->DeviceId = RINDX_NATIVE_SOFTWARE_ADAPTER_DEVICE_ID;
     out->DedicatedSystemMemory = 256u * 1024u * 1024u;
     out->SharedSystemMemory = 256u * 1024u * 1024u;
     out->Flags = DXGI_ADAPTER_FLAG_SOFTWARE;

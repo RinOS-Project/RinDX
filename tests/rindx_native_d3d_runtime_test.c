@@ -120,7 +120,12 @@ int main(void) {
                              window_class.hInstance, NULL);
     CHECK(window != NULL);
 
-    CHECK_HR(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u,
+    CHECK(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u,
+                            &level, 1u, D3D11_SDK_VERSION,
+                            &d3d11_device, &level, &d3d11_context) ==
+          DXGI_ERROR_UNSUPPORTED);
+    CHECK(d3d11_device == NULL && d3d11_context == NULL);
+    CHECK_HR(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u,
                                &level, 1u, D3D11_SDK_VERSION,
                                &d3d11_device, &level, &d3d11_context));
     CHECK(d3d11_device != NULL && d3d11_context != NULL);
@@ -155,8 +160,13 @@ int main(void) {
     swap_desc.OutputWindow = window;
     swap_desc.Windowed = TRUE;
     swap_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-    CHECK_HR(D3D11CreateDeviceAndSwapChain(
+    CHECK(D3D11CreateDeviceAndSwapChain(
         NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u, NULL, 0u,
+        D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
+        &swap_context) == DXGI_ERROR_UNSUPPORTED);
+    CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL);
+    CHECK_HR(D3D11CreateDeviceAndSwapChain(
+        NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
         D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
         &swap_context));
     CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1, (void**)&factory));
@@ -232,8 +242,18 @@ int main(void) {
     IDXGISwapChain_Release(swapchain);
     ID3D11DeviceContext_Release(swap_context);
     ID3D11Device_Release(swap_device);
-    CHECK_HR(D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_12_0,
+    CHECK(D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_12_0,
+                            &IID_ID3D12Device, (void**)&d3d12_device) ==
+          DXGI_ERROR_UNSUPPORTED);
+    CHECK(d3d12_device == NULL);
+    CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1, (void**)&factory));
+    CHECK_HR(IDXGIFactory1_EnumAdapters1(factory, 0u, &adapter));
+    CHECK_HR(D3D12CreateDevice((IUnknown*)adapter, D3D_FEATURE_LEVEL_12_0,
                                &IID_ID3D12Device, (void**)&d3d12_device));
+    IDXGIAdapter1_Release(adapter);
+    adapter = NULL;
+    IDXGIFactory1_Release(factory);
+    factory = NULL;
     CHECK(d3d12_device != NULL);
     CHECK(ID3D12Device_GetNodeCount(d3d12_device) == 1u);
     memset(&root_signature, 0, sizeof(root_signature));

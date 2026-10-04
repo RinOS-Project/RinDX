@@ -14,6 +14,14 @@ resolution is an explicit `RinDxProviderV1` boundary; RinNT owns policy and
 does not embed a DXGI implementation. Physical GPU drivers, IRQ/DMA, external
 backends, and hardware evidence remain outside this software split.
 
+The native Windows DLL is an explicit software profile, not a hardware
+substitute: D3D11 creation accepts WARP/REFERENCE requests or an enumerated
+RinDX software adapter with `D3D_DRIVER_TYPE_UNKNOWN`; D3D12 creation requires
+that enumerated RinDX software adapter. Hardware requests, a null D3D12
+adapter, and adapters not identified as this software profile return
+`DXGI_ERROR_UNSUPPORTED` without publishing a device. Selecting this profile
+never claims physical GPU execution.
+
 The native entry points are a host software ABI profile, not a claim that an
 unmodified Windows application has full driver-level compatibility. DXBC/DXIL
 and root-signature translation, physical adapter/driver execution, IRQ/DMA,
