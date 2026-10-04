@@ -13,6 +13,7 @@ typedef struct RinDxSwapchainFailureProbe {
     uint32_t release_calls;
     uint32_t present_calls;
     int fail_validation;
+    int fail_retain;
 } RinDxSwapchainFailureProbe;
 
 static int rindx_swapchain_test_retain(void* context, void* native_window)
@@ -20,7 +21,7 @@ static int rindx_swapchain_test_retain(void* context, void* native_window)
     RinDxSwapchainFailureProbe* probe = context;
     if (!probe || !native_window) return -1;
     ++probe->retain_calls;
-    return 0;
+    return probe->fail_retain ? 1 : 0;
 }
 
 static void rindx_swapchain_test_release(void* context, void* native_window)

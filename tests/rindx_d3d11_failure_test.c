@@ -184,15 +184,56 @@ int main(void)
           owner_probe.retain_calls == 0u && owner_probe.release_calls == 0u &&
           owner_probe.present_calls == 0u);
     owner_probe.fail_validation = 0;
+
+    owner_probe.fail_retain = 1;
+    memset(&swapchain_device, 0xa5, sizeof(swapchain_device));
+    memset(&swapchain_runtime, 0xa5, sizeof(swapchain_runtime));
+    CHECK(rindx_d3d11_create_device_and_swapchain(
+              &runtime_desc, &feature_level, 1u, &swapchain_desc,
+              &window_owner, &presentation_backend, &swapchain_device,
+              &swapchain_runtime) == RIN_GPU_ERROR_BACKEND);
+    {
+        const RinDxD3d11Device zero_device = {0};
+        const RinGpuDxgiSwapchainRuntime zero_swapchain = {0};
+        CHECK(memcmp(&swapchain_device, &zero_device,
+                     sizeof(swapchain_device)) == 0);
+        CHECK(memcmp(&swapchain_runtime, &zero_swapchain,
+                     sizeof(swapchain_runtime)) == 0);
+    }
+    CHECK(owner_probe.validate_calls == 2u &&
+          owner_probe.retain_calls == 1u && owner_probe.release_calls == 0u &&
+          owner_probe.present_calls == 0u);
+    owner_probe.fail_retain = 0;
+
+    presentation_backend.submit = NULL;
+    memset(&swapchain_device, 0xa5, sizeof(swapchain_device));
+    memset(&swapchain_runtime, 0xa5, sizeof(swapchain_runtime));
+    CHECK(rindx_d3d11_create_device_and_swapchain(
+              &runtime_desc, &feature_level, 1u, &swapchain_desc,
+              &window_owner, &presentation_backend, &swapchain_device,
+              &swapchain_runtime) == RIN_GPU_ERROR_BACKEND);
+    {
+        const RinDxD3d11Device zero_device = {0};
+        const RinGpuDxgiSwapchainRuntime zero_swapchain = {0};
+        CHECK(memcmp(&swapchain_device, &zero_device,
+                     sizeof(swapchain_device)) == 0);
+        CHECK(memcmp(&swapchain_runtime, &zero_swapchain,
+                     sizeof(swapchain_runtime)) == 0);
+    }
+    CHECK(owner_probe.validate_calls == 3u &&
+          owner_probe.retain_calls == 2u && owner_probe.release_calls == 1u &&
+          owner_probe.present_calls == 0u);
+    presentation_backend.submit = rindx_swapchain_test_present;
+
     CHECK(rindx_d3d11_create_device_and_swapchain(
               &runtime_desc, &feature_level, 1u, &swapchain_desc,
               &window_owner, &presentation_backend, &swapchain_device,
               &swapchain_runtime) == RIN_GPU_OK);
-    CHECK(owner_probe.validate_calls == 2u && owner_probe.retain_calls == 1u &&
-          owner_probe.release_calls == 0u);
+    CHECK(owner_probe.validate_calls == 4u && owner_probe.retain_calls == 3u &&
+          owner_probe.release_calls == 1u);
     CHECK(rin_gpu_dxgi_swapchain_runtime_shutdown(&swapchain_runtime) ==
           RIN_GPU_DXGI_SWAPCHAIN_OK);
-    CHECK(owner_probe.release_calls == 1u && owner_probe.present_calls == 0u);
+    CHECK(owner_probe.release_calls == 2u && owner_probe.present_calls == 0u);
     CHECK(rindx_d3d11_destroy_device(&swapchain_device) == RIN_GPU_OK);
 
     CHECK(rindx_d3d11_create_device(&runtime_desc, &feature_level, 1u,
