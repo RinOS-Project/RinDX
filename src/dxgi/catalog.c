@@ -36,7 +36,8 @@ typedef struct RinGpuDxgiCatalogState {
     uint64_t handle_secret;
     uint32_t adapter_count;
     uint32_t output_count;
-    const RinGpuCore* sources[RIN_GPU_DXGI_MAX_ADAPTERS];
+    const void* sources[RIN_GPU_DXGI_MAX_ADAPTERS];
+    RinGpuDxgiCatalogSourceOpsV1 source_ops;
     RinGpuPhysicalDriver* physical_sources[RIN_GPU_DXGI_MAX_ADAPTERS];
     RinGpuDxgiOutputTopologyProviderFn topology_provider;
     void* topology_provider_context;
@@ -369,25 +370,40 @@ static int catalog_find_output(const RinGpuDxgiCatalogState* state,
     return 0;
 }
 
-int rin_gpu_dxgi_catalog_init(RinGpuDxgiCatalog* catalog,
-                              const RinGpuCore* const* adapters,
-                              uint32_t adapter_count, uint64_t generation,
-                              uint64_t handle_secret) {
-    const RinGpuCore* sources[RIN_GPU_DXGI_MAX_ADAPTERS];
+int rin_gpu_dxgi_catalog_init_from_sources(
+    RinGpuDxgiCatalog* catalog, const void* const* source_handles,
+    uint32_t source_count, uint64_t generation, uint64_t handle_secret,
+    const RinGpuDxgiCatalogSourceOpsV1* source_ops) {
+    const void* sources[RIN_GPU_DXGI_MAX_ADAPTERS];
+    RinGpuDxgiCatalogSourceOpsV1 ops_copy;
     RinGpuDxgiCatalogState* state;
     uint64_t prior_magic;
     uint32_t adapter_index;
 
-    if (!catalog || !adapters || adapter_count == 0u ||
-        adapter_count > RIN_GPU_DXGI_MAX_ADAPTERS || generation == 0u ||
+    if (!catalog || !source_handles || !source_ops || source_count == 0u ||
+        source_count > RIN_GPU_DXGI_MAX_ADAPTERS || generation == 0u ||
         handle_secret == 0u ||
-        catalog_overlap(catalog, sizeof(*catalog), adapters,
-                        (size_t)adapter_count * sizeof(adapters[0]))) {
+        catalog_overlap(catalog, sizeof(*catalog), source_handles,
+                        (size_t)source_count * sizeof(source_handles[0])) ||
+        catalog_overlap(catalog, sizeof(*catalog), source_ops,
+                        sizeof(*source_ops)) ||
+        catalog_overlap(source_handles,
+                        (size_t)source_count * sizeof(source_handles[0]),
+                        source_ops, sizeof(*source_ops))) {
         return RIN_GPU_DXGI_INVALID_ARGUMENT;
     }
-    for (adapter_index = 0u; adapter_index < adapter_count; ++adapter_index) {
+    memcpy(&ops_copy, source_ops, sizeof(ops_copy));
+    if (ops_copy.struct_size != sizeof(ops_copy) ||
+        ops_copy.version != RIN_GPU_DXGI_CATALOG_SOURCE_OPS_V1_VERSION ||
+        !ops_copy.get_adapter_info || !ops_copy.get_display_count ||
+        !ops_copy.get_display_info || ops_copy.reserved[0] != 0u ||
+        ops_copy.reserved[1] != 0u ||
+        catalog_overlap(catalog, sizeof(*catalog), ops_copy.context,
+                        sizeof(uint8_t)))
+        return RIN_GPU_DXGI_INVALID_ARGUMENT;
+    for (adapter_index = 0u; adapter_index < source_count; ++adapter_index) {
         uint32_t prior;
-        sources[adapter_index] = adapters[adapter_index];
+        sources[adapter_index] = source_handles[adapter_index];
         if (!sources[adapter_index] ||
             catalog_overlap(catalog, sizeof(*catalog),
                             sources[adapter_index], sizeof(uint8_t))) {
@@ -405,9 +421,10 @@ int rin_gpu_dxgi_catalog_init(RinGpuDxgiCatalog* catalog,
     state = catalog_state(catalog);
     state->generation = generation;
     state->handle_secret = handle_secret;
-    state->adapter_count = adapter_count;
+    state->adapter_count = source_count;
+    state->source_ops = ops_copy;
 
-    for (adapter_index = 0u; adapter_index < adapter_count; ++adapter_index) {
+    for (adapter_index = 0u; adapter_index < source_count; ++adapter_index) {
         RinGpuAdapterInfoV1 adapter;
         uint32_t display_count = 0u;
         uint32_t display_index;
@@ -416,9 +433,11 @@ int rin_gpu_dxgi_catalog_init(RinGpuDxgiCatalog* catalog,
         uint64_t handle;
 
         state->sources[adapter_index] = sources[adapter_index];
-        if (ringpu_get_adapter_info(sources[adapter_index], &adapter) !=
+        if (ops_copy.get_adapter_info(ops_copy.context,
+                                      sources[adapter_index], &adapter) !=
                 RIN_GPU_OK ||
-            ringpu_get_display_count(sources[adapter_index], &display_count) !=
+            ops_copy.get_display_count(ops_copy.context,
+                                       sources[adapter_index], &display_count) !=
                 RIN_GPU_OK) {
             goto source_failed;
         }
@@ -445,8 +464,10 @@ int rin_gpu_dxgi_catalog_init(RinGpuDxgiCatalog* catalog,
             uint32_t output_index = state->output_count;
             uint32_t prior;
 
-            if (ringpu_get_display_info(sources[adapter_index], display_index,
-                                        &display) != RIN_GPU_OK) {
+            if (ops_copy.get_display_info(ops_copy.context,
+                                          sources[adapter_index],
+                                          display_index, &display) !=
+                RIN_GPU_OK) {
                 goto source_failed;
             }
             if (!catalog_output_snapshot(&display, luid,
@@ -739,10 +760,12 @@ int rin_gpu_dxgi_catalog_is_current(RinGpuDxgiCatalog* catalog,
         uint32_t display_count = 0u;
         uint32_t display_index;
 
-        if (ringpu_get_adapter_info(state->sources[adapter_index], &adapter) !=
-                RIN_GPU_OK ||
-            ringpu_get_display_count(state->sources[adapter_index],
-                                     &display_count) != RIN_GPU_OK ||
+        if (state->source_ops.get_adapter_info(
+                state->source_ops.context, state->sources[adapter_index],
+                &adapter) != RIN_GPU_OK ||
+            state->source_ops.get_display_count(
+                state->source_ops.context, state->sources[adapter_index],
+                &display_count) != RIN_GPU_OK ||
             display_count != state->adapter_output_counts[adapter_index] ||
             memcmp(&adapter, &state->source_adapters[adapter_index],
                    sizeof(adapter)) != 0) {
@@ -754,8 +777,10 @@ int rin_gpu_dxgi_catalog_is_current(RinGpuDxgiCatalog* catalog,
             RinGpuDisplayInfoV1 display;
             uint32_t output_index =
                 state->adapter_output_offsets[adapter_index] + display_index;
-            if (ringpu_get_display_info(state->sources[adapter_index],
-                                        display_index, &display) != RIN_GPU_OK ||
+            if (state->source_ops.get_display_info(
+                    state->source_ops.context,
+                    state->sources[adapter_index], display_index,
+                    &display) != RIN_GPU_OK ||
                 memcmp(&display, &state->source_outputs[output_index],
                        sizeof(display)) != 0) {
                 catalog_unlock(state);

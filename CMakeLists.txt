@@ -15,6 +15,7 @@ if(NOT TARGET RinGPU::RinGPU)
 endif()
 set(RINDX_SOURCES
     src/dxgi/catalog.c
+    src/dxgi/catalog_runtime.c
     src/dxgi/com.c
     src/dxgi/swapchain.c
     src/d3d11/d3d11.c

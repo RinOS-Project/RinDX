@@ -305,7 +305,7 @@ int rin_gpu_dxgi_com_runtime_shutdown(RinGpuDxgiComRuntime* runtime);
  * portable catalog ABI keeps the same entry points on non-Windows hosts;
  * the native adapter uses the SDK declarations without a conflicting
  * prototype. */
-#if !defined(_WIN32)
+#if !defined(_WIN32) || defined(RINDX_DXGI_COM_SOFTWARE_FACTORY)
 RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory(const RinDxgiGuid* iid, void** factory_out);
 RinDxgiHresult RIN_DXGI_STDCALL

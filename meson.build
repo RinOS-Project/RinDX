@@ -4,6 +4,7 @@ ringpu_dep = dependency('ringpu', required: true)
 rindx_inc = include_directories('include')
 rindx = library('rindx', files(
   'src/dxgi/catalog.c',
+  'src/dxgi/catalog_runtime.c',
   'src/dxgi/com.c',
   'src/dxgi/swapchain.c',
   'src/d3d11/d3d11.c',

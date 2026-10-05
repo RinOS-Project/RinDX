@@ -40,6 +40,32 @@ typedef enum RinGpuDxgiCatalogResult {
     RIN_GPU_DXGI_UNSUPPORTED = -9
 } RinGpuDxgiCatalogResult;
 
+#define RIN_GPU_DXGI_CATALOG_SOURCE_OPS_V1_VERSION UINT32_C(0x00010000)
+
+typedef int (*RinGpuDxgiCatalogGetAdapterInfoFn)(
+    void* context, const void* source, RinGpuAdapterInfoV1* info_out);
+typedef int (*RinGpuDxgiCatalogGetDisplayCountFn)(
+    void* context, const void* source, uint32_t* count_out);
+typedef int (*RinGpuDxgiCatalogGetDisplayInfoFn)(
+    void* context, const void* source, uint32_t index,
+    RinGpuDisplayInfoV1* info_out);
+
+/* Versioned source adapter for catalogs backed by a runtime other than the
+ * public RinGPU core. Each callback returns RIN_GPU_OK only with a complete
+ * output record; every other result is treated as a source failure. The
+ * catalog copies this table but borrows source and context pointers until
+ * shutdown; query errors make the catalog non-current and are never
+ * translated into valid empty snapshots. */
+typedef struct RinGpuDxgiCatalogSourceOpsV1 {
+    uint32_t struct_size;
+    uint32_t version;
+    RinGpuDxgiCatalogGetAdapterInfoFn get_adapter_info;
+    RinGpuDxgiCatalogGetDisplayCountFn get_display_count;
+    RinGpuDxgiCatalogGetDisplayInfoFn get_display_info;
+    void* context;
+    uint64_t reserved[2];
+} RinGpuDxgiCatalogSourceOpsV1;
+
 /* Values are the public DXGI_FORMAT numeric values used by Windows clients. */
 #define RIN_GPU_DXGI_FORMAT_R8G8B8A8_UNORM 28u
 #define RIN_GPU_DXGI_FORMAT_B8G8R8A8_UNORM 87u
@@ -114,14 +140,20 @@ typedef struct RinGpuDxgiCatalog {
     uint64_t opaque[RIN_GPU_DXGI_CATALOG_STATE_QWORDS];
 } RinGpuDxgiCatalog;
 
-/* The catalog snapshots public RinGPU identity/display data and retains the
- * caller-owned core pointers only for is_current().  Every core must therefore
- * outlive catalog shutdown.  generation and handle_secret are nonzero and must
- * change when a process publishes a replacement adapter catalog. */
+/* Public-runtime convenience initializer. OS-Core private cores are not public
+ * RinGpuCore objects and must instead use the explicit source-ops adapter
+ * below. The catalog borrows public core pointers until shutdown. */
 int rin_gpu_dxgi_catalog_init(RinGpuDxgiCatalog* catalog,
                               const RinGpuCore* const* adapters,
                               uint32_t adapter_count, uint64_t generation,
                               uint64_t handle_secret);
+/* Initializes the same catalog contract through an explicit versioned source
+ * adapter. Adapter/display data is snapshotted at init and re-queried by
+ * is_current; sources and callback context remain caller-owned. */
+int rin_gpu_dxgi_catalog_init_from_sources(
+    RinGpuDxgiCatalog* catalog, const void* const* sources,
+    uint32_t source_count, uint64_t generation, uint64_t handle_secret,
+    const RinGpuDxgiCatalogSourceOpsV1* source_ops);
 /* Builds the catalog directly from active physical-driver owners.  The
  * drivers and their cores remain caller-owned and must outlive the catalog;
  * a lost, detached, or invalid driver is never represented as an adapter. */

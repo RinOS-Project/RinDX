@@ -1765,7 +1765,7 @@ int rin_gpu_dxgi_com_runtime_shutdown(RinGpuDxgiComRuntime* runtime) {
     return RIN_GPU_DXGI_OK;
 }
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(RINDX_DXGI_COM_SOFTWARE_FACTORY)
 extern int32_t rindx_native_dxgi_create_factory(const void* iid, void** out);
 extern int32_t rindx_native_dxgi_create_factory2(uint32_t flags, const void* iid,
                                                  void** out);
@@ -1802,7 +1802,7 @@ static RinDxgiHresult create_factory_common(const RinDxgiGuid* iid,
 
 RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory(const RinDxgiGuid* iid, void** factory_out) {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(RINDX_DXGI_COM_SOFTWARE_FACTORY)
     return (RinDxgiHresult)rindx_native_dxgi_create_factory(iid, factory_out);
 #else
     return create_factory_common(iid, factory_out);
@@ -1811,7 +1811,7 @@ CreateDXGIFactory(const RinDxgiGuid* iid, void** factory_out) {
 
 RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory1(const RinDxgiGuid* iid, void** factory_out) {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(RINDX_DXGI_COM_SOFTWARE_FACTORY)
     return (RinDxgiHresult)rindx_native_dxgi_create_factory(iid, factory_out);
 #else
     return create_factory_common(iid, factory_out);
@@ -1821,7 +1821,7 @@ CreateDXGIFactory1(const RinDxgiGuid* iid, void** factory_out) {
 RINDX_DXGI_NATIVE_EXPORT RinDxgiHresult RIN_DXGI_STDCALL
 CreateDXGIFactory2(uint32_t flags, const RinDxgiGuid* iid,
                    void** factory_out) {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(RINDX_DXGI_COM_SOFTWARE_FACTORY)
     return (RinDxgiHresult)rindx_native_dxgi_create_factory2(flags, iid,
                                                               factory_out);
 #else
