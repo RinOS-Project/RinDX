@@ -2874,13 +2874,33 @@ static int native_swapchain_backend_cancel(
     return 0;
 }
 
-static HRESULT native_swapchain_create_buffers(NativeD3d11Swapchain* swapchain) {
+static void native_swapchain_release_buffer_set(
+    NativeD3d11Resource* buffers[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS],
+    uint32_t count) {
     uint32_t index;
-    uint32_t format = native_dxgi_image_format(swapchain->desc.BufferDesc.Format);
+    for (index = 0u; index < count; ++index) {
+        if (buffers[index]) {
+            ID3D11Buffer_Release(&buffers[index]->iface);
+            buffers[index] = NULL;
+        }
+    }
+}
+
+static HRESULT native_swapchain_build_buffers(
+    NativeD3d11Device* device, const DXGI_SWAP_CHAIN_DESC* desc,
+    uint32_t count,
+    NativeD3d11Resource* buffers_out[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS]) {
+    uint32_t index;
+    uint32_t format;
+    if (!device || !desc || !buffers_out || count == 0u ||
+        count > RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS)
+        return E_INVALIDARG;
+    memset(buffers_out, 0,
+           sizeof(*buffers_out) * RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS);
+    format = native_dxgi_image_format(desc->BufferDesc.Format);
     if (format == 0u) return E_INVALIDARG;
-    for (index = 0u; index < swapchain->buffer_count; ++index) {
+    for (index = 0u; index < count; ++index) {
         RinGpuImageDescV1 image_desc;
-        RinGpuDxgiSwapchainBufferV1 buffer;
         NativeD3d11Resource* resource;
         int result;
         memset(&image_desc, 0, sizeof(image_desc));
@@ -2888,8 +2908,8 @@ static HRESULT native_swapchain_create_buffers(NativeD3d11Swapchain* swapchain) 
         image_desc.struct_size = sizeof(image_desc);
         image_desc.dimension = RIN_GPU_IMAGE_DIMENSION_2D;
         image_desc.format = format;
-        image_desc.width = swapchain->desc.BufferDesc.Width;
-        image_desc.height = swapchain->desc.BufferDesc.Height;
+        image_desc.width = desc->BufferDesc.Width;
+        image_desc.height = desc->BufferDesc.Height;
         image_desc.depth = 1u;
         image_desc.array_layers = 1u;
         image_desc.mip_levels = 1u;
@@ -2900,38 +2920,85 @@ static HRESULT native_swapchain_create_buffers(NativeD3d11Swapchain* swapchain) 
                            RIN_GPU_IMAGE_PRESENT;
         image_desc.flags = RIN_GPU_IMAGE_CPU_READABLE;
         resource = (NativeD3d11Resource*)calloc(1u, sizeof(*resource));
-        if (!resource) return E_OUTOFMEMORY;
-        result = rindx_d3d11_create_texture2d(&swapchain->device->core,
+        if (!resource) {
+            native_swapchain_release_buffer_set(buffers_out, index);
+            return E_OUTOFMEMORY;
+        }
+        result = rindx_d3d11_create_texture2d(&device->core,
                                               &image_desc, &resource->handle);
-        if (result != RIN_GPU_OK) { free(resource); return core_result(result); }
+        if (result != RIN_GPU_OK) {
+            free(resource);
+            native_swapchain_release_buffer_set(buffers_out, index);
+            return core_result(result);
+        }
         resource->iface.lpVtbl = (ID3D11BufferVtbl*)(void*)&native_texture2d_vtable;
         resource->references = 1;
-        resource->device = swapchain->device;
+        resource->device = device;
         resource->kind = NATIVE_D3D11_TEXTURE2D;
         resource->image_state = RIN_GPU_IMAGE_STATE_UNDEFINED;
         memset(&resource->texture2d_desc, 0, sizeof(resource->texture2d_desc));
-        resource->texture2d_desc.Width = swapchain->desc.BufferDesc.Width;
-        resource->texture2d_desc.Height = swapchain->desc.BufferDesc.Height;
+        resource->texture2d_desc.Width = desc->BufferDesc.Width;
+        resource->texture2d_desc.Height = desc->BufferDesc.Height;
         resource->texture2d_desc.MipLevels = 1u;
         resource->texture2d_desc.ArraySize = 1u;
-        resource->texture2d_desc.Format = swapchain->desc.BufferDesc.Format;
+        resource->texture2d_desc.Format = desc->BufferDesc.Format;
         resource->texture2d_desc.SampleDesc.Count = 1u;
         resource->texture2d_desc.Usage = D3D11_USAGE_DEFAULT;
         resource->texture2d_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
-        ID3D11Device_AddRef(&swapchain->device->iface);
-        swapchain->buffers[index] = resource;
+        ID3D11Device_AddRef(&device->iface);
+        buffers_out[index] = resource;
+    }
+    return S_OK;
+}
+
+static HRESULT native_swapchain_bind_buffer_set(
+    NativeD3d11Swapchain* swapchain,
+    NativeD3d11Resource* buffers[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS],
+    uint32_t count) {
+    uint32_t index;
+    for (index = 0u; index < count; ++index) {
+        RinGpuDxgiSwapchainBufferV1 buffer;
+        int result;
         memset(&buffer, 0, sizeof(buffer));
         buffer.struct_size = sizeof(buffer);
         buffer.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
         result = rin_gpu_dxgi_swapchain_get_buffer(&swapchain->core, index,
                                                    &buffer);
-        if (result != RIN_GPU_DXGI_SWAPCHAIN_OK ||
-            rin_gpu_dxgi_swapchain_bind_buffer(&swapchain->core,
-                                               buffer.image_token,
-                                               resource->handle) !=
-                RIN_GPU_DXGI_SWAPCHAIN_OK)
+        if (result == RIN_GPU_DXGI_SWAPCHAIN_OK)
+            result = rin_gpu_dxgi_swapchain_bind_buffer(
+                &swapchain->core, buffer.image_token,
+                buffers[index]->handle);
+        if (result != RIN_GPU_DXGI_SWAPCHAIN_OK) {
+            uint32_t rollback;
+            for (rollback = 0u; rollback < index; ++rollback) {
+                memset(&buffer, 0, sizeof(buffer));
+                buffer.struct_size = sizeof(buffer);
+                buffer.version = RIN_GPU_DXGI_SWAPCHAIN_VERSION;
+                if (rin_gpu_dxgi_swapchain_get_buffer(
+                        &swapchain->core, rollback, &buffer) ==
+                    RIN_GPU_DXGI_SWAPCHAIN_OK)
+                    (void)rin_gpu_dxgi_swapchain_unbind_buffer(
+                        &swapchain->core, buffer.image_token,
+                        buffers[rollback]->handle);
+            }
             return E_FAIL;
+        }
     }
+    return S_OK;
+}
+
+static HRESULT native_swapchain_create_buffers(NativeD3d11Swapchain* swapchain) {
+    NativeD3d11Resource* buffers[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
+    HRESULT result = native_swapchain_build_buffers(
+        swapchain->device, &swapchain->desc, swapchain->buffer_count, buffers);
+    if (FAILED(result)) return result;
+    result = native_swapchain_bind_buffer_set(swapchain, buffers,
+                                              swapchain->buffer_count);
+    if (FAILED(result)) {
+        native_swapchain_release_buffer_set(buffers, swapchain->buffer_count);
+        return result;
+    }
+    memcpy(swapchain->buffers, buffers, sizeof(buffers));
     return S_OK;
 }
 
@@ -3125,6 +3192,10 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     NativeD3d11Swapchain* swapchain = native_swapchain_from_interface(self);
     RinGpuDxgiSwapchainStatusV1 current_status;
     RinGpuPresentationOutputV1 output;
+    RinGpuPresentationOutputV1 rollback_output;
+    DXGI_SWAP_CHAIN_DESC replacement_desc;
+    NativeD3d11Resource* replacement_buffers[
+        RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
     uint32_t old_count = swapchain->buffer_count;
     uint32_t index;
     HRESULT result;
@@ -3150,9 +3221,19 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     result = core_result(rin_gpu_dxgi_swapchain_get_status(
         &swapchain->core, &current_status));
     if (FAILED(result)) return result;
-    if (current_status.output_generation == UINT64_MAX)
+    if (current_status.output_generation >= UINT64_MAX - 2u)
         return DXGI_ERROR_INVALID_CALL;
-    native_swapchain_destroy_buffers(swapchain);
+
+    replacement_desc = swapchain->desc;
+    replacement_desc.BufferCount = count;
+    replacement_desc.BufferDesc.Width = width;
+    replacement_desc.BufferDesc.Height = height;
+    replacement_desc.BufferDesc.Format = format;
+    replacement_desc.Flags = flags;
+    result = native_swapchain_build_buffers(
+        swapchain->device, &replacement_desc, count, replacement_buffers);
+    if (FAILED(result)) return result;
+
     memset(&output, 0, sizeof(output));
     output.struct_size = sizeof(output);
     output.version = RIN_GPU_PRESENTATION_VERSION;
@@ -3166,17 +3247,40 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
     output.device_generation = current_status.device_generation;
     result = core_result(rin_gpu_dxgi_swapchain_resize_buffers(
         &swapchain->core, &output, count));
-    if (FAILED(result)) return result;
-    swapchain->desc.BufferCount = count;
-    swapchain->desc.BufferDesc.Width = width;
-    swapchain->desc.BufferDesc.Height = height;
-    swapchain->desc.BufferDesc.Format = format;
-    swapchain->buffer_count = count;
-    result = native_swapchain_create_buffers(swapchain);
     if (FAILED(result)) {
-        swapchain->buffer_count = old_count;
+        native_swapchain_release_buffer_set(replacement_buffers, count);
         return result;
     }
+    result = native_swapchain_bind_buffer_set(swapchain, replacement_buffers,
+                                              count);
+    if (FAILED(result)) {
+        HRESULT rollback_result;
+        rollback_output = output;
+        rollback_output.width = swapchain->desc.BufferDesc.Width;
+        rollback_output.height = swapchain->desc.BufferDesc.Height;
+        rollback_output.format = native_dxgi_image_format(
+            swapchain->desc.BufferDesc.Format);
+        rollback_output.output_generation = output.output_generation + 1u;
+        rollback_result = core_result(rin_gpu_dxgi_swapchain_resize_buffers(
+            &swapchain->core, &rollback_output, old_count));
+        if (SUCCEEDED(rollback_result)) {
+            rollback_result = native_swapchain_bind_buffer_set(
+                swapchain, swapchain->buffers, old_count);
+            if (SUCCEEDED(rollback_result))
+                swapchain->current_buffer = 0u;
+        }
+        native_swapchain_release_buffer_set(replacement_buffers, count);
+        if (FAILED(rollback_result)) return rollback_result;
+        return result;
+    }
+
+    native_swapchain_destroy_buffers(swapchain);
+    memcpy(swapchain->buffers, replacement_buffers,
+           sizeof(replacement_buffers));
+    swapchain->desc = replacement_desc;
+    swapchain->buffer_count = count;
+    swapchain->current_buffer = 0u;
+    swapchain->present_count = 0u;
     return S_OK;
 }
 static HRESULT WINAPI native_swapchain_resize_target(
