@@ -250,6 +250,78 @@ int main(void) {
         ID3D11Texture2D_Release(backbuffer);
         backbuffer = NULL;
     }
+    {
+        ID3D11Texture2D* pressure_resources[512] = {NULL};
+        ID3D11Texture2D* pressure_probe = NULL;
+        D3D11_TEXTURE2D_DESC pressure_desc;
+        DXGI_SWAP_CHAIN_DESC before_failure;
+        DXGI_SWAP_CHAIN_DESC after_failure;
+        D3D11_TEXTURE2D_DESC buffer_desc_after_failure;
+        UINT pressure_count = 0u;
+        int reached_capacity = 0;
+        memset(&pressure_desc, 0, sizeof(pressure_desc));
+        pressure_desc.Width = 1u;
+        pressure_desc.Height = 1u;
+        pressure_desc.MipLevels = 1u;
+        pressure_desc.ArraySize = 1u;
+        pressure_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pressure_desc.SampleDesc.Count = 1u;
+        pressure_desc.Usage = D3D11_USAGE_DEFAULT;
+        pressure_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        for (; pressure_count < sizeof(pressure_resources) /
+                                     sizeof(pressure_resources[0]);
+             ++pressure_count) {
+            HRESULT create_result = ID3D11Device_CreateTexture2D(
+                swap_device, &pressure_desc, NULL,
+                &pressure_resources[pressure_count]);
+            if (FAILED(create_result)) {
+                pressure_resources[pressure_count] = NULL;
+                reached_capacity = 1;
+                break;
+            }
+            CHECK(pressure_resources[pressure_count] != NULL);
+        }
+        CHECK(reached_capacity && pressure_count != 0u);
+        /* Leave one object-table slot: replacement buffer 0 must allocate,
+         * then buffer 1 must fail without publishing a partial resize. */
+        ID3D11Texture2D_Release(pressure_resources[--pressure_count]);
+        pressure_resources[pressure_count] = NULL;
+
+        CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &before_failure));
+        CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
+            swapchain, before_failure.BufferCount,
+            before_failure.BufferDesc.Width,
+            before_failure.BufferDesc.Height,
+            before_failure.BufferDesc.Format, 0u)));
+        CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &after_failure));
+        CHECK(after_failure.BufferCount == before_failure.BufferCount &&
+              after_failure.BufferDesc.Width ==
+                  before_failure.BufferDesc.Width &&
+              after_failure.BufferDesc.Height ==
+                  before_failure.BufferDesc.Height &&
+              after_failure.BufferDesc.Format ==
+                  before_failure.BufferDesc.Format);
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
+        ID3D11Texture2D_GetDesc(backbuffer, &buffer_desc_after_failure);
+        CHECK(buffer_desc_after_failure.Width ==
+                  before_failure.BufferDesc.Width &&
+              buffer_desc_after_failure.Height ==
+                  before_failure.BufferDesc.Height);
+        ID3D11Texture2D_Release(backbuffer);
+        backbuffer = NULL;
+
+        CHECK_HR(ID3D11Device_CreateTexture2D(
+            swap_device, &pressure_desc, NULL, &pressure_probe));
+        CHECK(pressure_probe != NULL);
+        ID3D11Texture2D_Release(pressure_probe);
+        pressure_probe = NULL;
+        while (pressure_count != 0u) {
+            --pressure_count;
+            ID3D11Texture2D_Release(pressure_resources[pressure_count]);
+            pressure_resources[pressure_count] = NULL;
+        }
+    }
     for (UINT resize_iteration = 0u; resize_iteration < 64u;
          ++resize_iteration) {
         const UINT width = 3u + resize_iteration;
@@ -371,6 +443,89 @@ int main(void) {
                   before_failure.BufferDesc.Height);
         ID3D12Resource_Release(d3d12_backbuffer);
         d3d12_backbuffer = NULL;
+    }
+    {
+        ID3D12Resource* pressure_resources[512] = {NULL};
+        ID3D12Resource* pressure_probe = NULL;
+        D3D12_HEAP_PROPERTIES pressure_heap;
+        D3D12_RESOURCE_DESC pressure_desc;
+        DXGI_SWAP_CHAIN_DESC before_failure;
+        DXGI_SWAP_CHAIN_DESC after_failure;
+        D3D12_RESOURCE_DESC buffer_desc_after_failure;
+        UINT pressure_count = 0u;
+        int reached_capacity = 0;
+        memset(&pressure_heap, 0, sizeof(pressure_heap));
+        pressure_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        pressure_heap.CreationNodeMask = 1u;
+        pressure_heap.VisibleNodeMask = 1u;
+        memset(&pressure_desc, 0, sizeof(pressure_desc));
+        pressure_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        pressure_desc.Width = 64u;
+        pressure_desc.Height = 1u;
+        pressure_desc.DepthOrArraySize = 1u;
+        pressure_desc.MipLevels = 1u;
+        pressure_desc.Format = DXGI_FORMAT_UNKNOWN;
+        pressure_desc.SampleDesc.Count = 1u;
+        pressure_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        for (; pressure_count < sizeof(pressure_resources) /
+                                     sizeof(pressure_resources[0]);
+             ++pressure_count) {
+            HRESULT create_result = ID3D12Device_CreateCommittedResource(
+                d3d12_device, &pressure_heap, D3D12_HEAP_FLAG_NONE,
+                &pressure_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+                &IID_ID3D12Resource,
+                (void**)&pressure_resources[pressure_count]);
+            if (FAILED(create_result)) {
+                pressure_resources[pressure_count] = NULL;
+                reached_capacity = 1;
+                break;
+            }
+            CHECK(pressure_resources[pressure_count] != NULL);
+        }
+        CHECK(reached_capacity && pressure_count != 0u);
+        /* Leave one object-table slot: replacement buffer 0 must allocate,
+         * then buffer 1 must fail without publishing a partial resize. */
+        ID3D12Resource_Release(pressure_resources[--pressure_count]);
+        pressure_resources[pressure_count] = NULL;
+
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &before_failure));
+        CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
+            d3d12_swapchain, before_failure.BufferCount,
+            before_failure.BufferDesc.Width,
+            before_failure.BufferDesc.Height,
+            before_failure.BufferDesc.Format, 0u)));
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &after_failure));
+        CHECK(after_failure.BufferCount == before_failure.BufferCount &&
+              after_failure.BufferDesc.Width ==
+                  before_failure.BufferDesc.Width &&
+              after_failure.BufferDesc.Height ==
+                  before_failure.BufferDesc.Height &&
+              after_failure.BufferDesc.Format ==
+                  before_failure.BufferDesc.Format);
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            d3d12_swapchain, 0u, &IID_ID3D12Resource,
+            (void**)&d3d12_backbuffer));
+        ID3D12Resource_GetDesc(d3d12_backbuffer,
+                               &buffer_desc_after_failure);
+        CHECK(buffer_desc_after_failure.Width ==
+                  before_failure.BufferDesc.Width &&
+              buffer_desc_after_failure.Height ==
+                  before_failure.BufferDesc.Height);
+        ID3D12Resource_Release(d3d12_backbuffer);
+        d3d12_backbuffer = NULL;
+
+        CHECK_HR(ID3D12Device_CreateCommittedResource(
+            d3d12_device, &pressure_heap, D3D12_HEAP_FLAG_NONE,
+            &pressure_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void**)&pressure_probe));
+        CHECK(pressure_probe != NULL);
+        ID3D12Resource_Release(pressure_probe);
+        pressure_probe = NULL;
+        while (pressure_count != 0u) {
+            --pressure_count;
+            ID3D12Resource_Release(pressure_resources[pressure_count]);
+            pressure_resources[pressure_count] = NULL;
+        }
     }
     for (UINT resize_iteration = 0u; resize_iteration < 64u;
          ++resize_iteration) {
