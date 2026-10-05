@@ -318,6 +318,34 @@ int main(void) {
               DXGI_FORMAT_R8G8B8A8_UNORM, 0u) == DXGI_ERROR_INVALID_CALL);
     ID3D12Resource_Release(d3d12_backbuffer);
     d3d12_backbuffer = NULL;
+    {
+        DXGI_SWAP_CHAIN_DESC before_failure;
+        DXGI_SWAP_CHAIN_DESC after_failure;
+        D3D12_RESOURCE_DESC buffer_desc_after_failure;
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &before_failure));
+        CHECK(IDXGISwapChain_ResizeBuffers(
+                  d3d12_swapchain, 2u, 65536u, 2u,
+                  DXGI_FORMAT_R8G8B8A8_UNORM, 0u) == E_INVALIDARG);
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &after_failure));
+        CHECK(after_failure.BufferCount == before_failure.BufferCount &&
+              after_failure.BufferDesc.Width ==
+                  before_failure.BufferDesc.Width &&
+              after_failure.BufferDesc.Height ==
+                  before_failure.BufferDesc.Height &&
+              after_failure.BufferDesc.Format ==
+                  before_failure.BufferDesc.Format);
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            d3d12_swapchain, 0u, &IID_ID3D12Resource,
+            (void**)&d3d12_backbuffer));
+        ID3D12Resource_GetDesc(d3d12_backbuffer,
+                               &buffer_desc_after_failure);
+        CHECK(buffer_desc_after_failure.Width ==
+                  before_failure.BufferDesc.Width &&
+              buffer_desc_after_failure.Height ==
+                  before_failure.BufferDesc.Height);
+        ID3D12Resource_Release(d3d12_backbuffer);
+        d3d12_backbuffer = NULL;
+    }
     for (UINT resize_iteration = 0u; resize_iteration < 64u;
          ++resize_iteration) {
         const UINT width = 3u + resize_iteration;

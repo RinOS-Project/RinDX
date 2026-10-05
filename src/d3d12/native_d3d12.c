@@ -2574,29 +2574,49 @@ static void native_d3d12_swapchain_destroy_buffers(NativeD3d12Swapchain* swapcha
     swapchain->current_buffer = 0u;
 }
 
-static HRESULT native_d3d12_swapchain_create_buffers(
-    NativeD3d12Swapchain* swapchain) {
+static HRESULT native_d3d12_swapchain_build_buffers(
+    NativeD3d12Device* device, const DXGI_SWAP_CHAIN_DESC* swap_desc,
+    UINT count,
+    NativeD3d12Resource* buffers_out[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS]) {
     D3D12_RESOURCE_DESC resource_desc;
     UINT index;
+    if (!device || !swap_desc || !buffers_out || count == 0u ||
+        count > RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS)
+        return E_INVALIDARG;
+    memset(buffers_out, 0,
+           sizeof(*buffers_out) * RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS);
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Width = swapchain->desc.BufferDesc.Width;
-    resource_desc.Height = swapchain->desc.BufferDesc.Height;
+    resource_desc.Width = swap_desc->BufferDesc.Width;
+    resource_desc.Height = swap_desc->BufferDesc.Height;
     resource_desc.DepthOrArraySize = 1u;
     resource_desc.MipLevels = 1u;
-    resource_desc.Format = swapchain->desc.BufferDesc.Format;
-    resource_desc.SampleDesc = swapchain->desc.SampleDesc;
+    resource_desc.Format = swap_desc->BufferDesc.Format;
+    resource_desc.SampleDesc = swap_desc->SampleDesc;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    for (index = 0u; index < swapchain->buffer_count; ++index) {
+    for (index = 0u; index < count; ++index) {
         HRESULT result = native_d3d12_create_swapchain_resource(
-            swapchain->device, &resource_desc,
-            (ID3D12Resource**)&swapchain->buffers[index]);
+            device, &resource_desc, (ID3D12Resource**)&buffers_out[index]);
         if (FAILED(result)) {
-            native_d3d12_swapchain_destroy_buffers(swapchain);
+            while (index != 0u) {
+                --index;
+                ID3D12Resource_Release(&buffers_out[index]->iface);
+                buffers_out[index] = NULL;
+            }
             return result;
         }
     }
+    return S_OK;
+}
+
+static HRESULT native_d3d12_swapchain_create_buffers(
+    NativeD3d12Swapchain* swapchain) {
+    NativeD3d12Resource* buffers[RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
+    HRESULT result = native_d3d12_swapchain_build_buffers(
+        swapchain->device, &swapchain->desc, swapchain->buffer_count, buffers);
+    if (FAILED(result)) return result;
+    memcpy(swapchain->buffers, buffers, sizeof(buffers));
     return S_OK;
 }
 
@@ -2842,6 +2862,10 @@ static HRESULT WINAPI native_d3d12_swapchain_resize_buffers(
     IDXGISwapChain* self, UINT count, UINT width, UINT height,
     DXGI_FORMAT format, UINT flags) {
     NativeD3d12Swapchain* swapchain = native_d3d12_swapchain(self);
+    DXGI_SWAP_CHAIN_DESC replacement_desc;
+    NativeD3d12Resource* replacement_buffers[
+        RIN_GPU_DXGI_SWAPCHAIN_MAX_BUFFERS];
+    HRESULT result;
     if (count == 0u) count = swapchain->buffer_count;
     if (width == 0u) width = swapchain->desc.BufferDesc.Width;
     if (height == 0u) height = swapchain->desc.BufferDesc.Height;
@@ -2858,15 +2882,27 @@ static HRESULT WINAPI native_d3d12_swapchain_resize_buffers(
                 swapchain->buffers[index]->references > 1)
                 return DXGI_ERROR_INVALID_CALL;
     }
+    replacement_desc = swapchain->desc;
+    replacement_desc.BufferCount = count;
+    replacement_desc.BufferDesc.Width = width;
+    replacement_desc.BufferDesc.Height = height;
+    replacement_desc.BufferDesc.Format = format;
+    replacement_desc.Flags = flags;
+    result = native_d3d12_swapchain_build_buffers(
+        swapchain->device, &replacement_desc, count, replacement_buffers);
+    if (FAILED(result)) return result;
+
+    /* Keep the published swapchain intact until every replacement resource
+     * exists.  In particular, allocation/descriptor failure must not turn a
+     * failed resize into a live object with a new description and no buffers. */
     native_d3d12_swapchain_destroy_buffers(swapchain);
-    swapchain->desc.BufferCount = count;
-    swapchain->desc.BufferDesc.Width = width;
-    swapchain->desc.BufferDesc.Height = height;
-    swapchain->desc.BufferDesc.Format = format;
-    swapchain->desc.Flags = flags;
+    memcpy(swapchain->buffers, replacement_buffers,
+           sizeof(replacement_buffers));
+    swapchain->desc = replacement_desc;
     swapchain->buffer_count = count;
+    swapchain->current_buffer = 0u;
     swapchain->present_count = 0u;
-    return native_d3d12_swapchain_create_buffers(swapchain);
+    return S_OK;
 }
 
 static HRESULT WINAPI native_d3d12_swapchain_resize_target(
