@@ -20,11 +20,13 @@ static const RinGpuBackendOpsV1* delegated_ops;
 static uint32_t create_calls;
 static uint32_t delegated_create_calls;
 static uint32_t fail_next_create;
+static uint32_t fail_next_empty_create;
 static uint32_t fail_next_partial_create;
 static uint32_t destroyed_buffer_calls;
 static uint32_t image_create_calls;
 static uint32_t delegated_image_create_calls;
 static uint32_t fail_next_image_create;
+static uint32_t fail_next_empty_image_create;
 static uint32_t fail_next_partial_image_create;
 static uint32_t destroyed_image_calls;
 static uint32_t sampler_create_calls;
@@ -182,6 +184,11 @@ static int injected_create_buffer(void* context,
         --fail_next_create;
         return RIN_GPU_ERROR_NO_MEMORY;
     }
+    if (fail_next_empty_create != 0u) {
+        --fail_next_empty_create;
+        *cookie = 0u;
+        return RIN_GPU_OK;
+    }
     result = delegated_ops->create_buffer(context, desc, cookie);
     if (result != RIN_GPU_OK) return result;
     ++delegated_create_calls;
@@ -211,6 +218,11 @@ static int injected_create_image(void* context,
     if (fail_next_image_create != 0u) {
         --fail_next_image_create;
         return RIN_GPU_ERROR_NO_MEMORY;
+    }
+    if (fail_next_empty_image_create != 0u) {
+        --fail_next_empty_image_create;
+        *cookie = 0u;
+        return RIN_GPU_OK;
     }
     result = delegated_ops->create_image(context, desc, allocation_bytes,
                                           cookie);
@@ -683,6 +695,25 @@ int main(void)
 
     {
         uint32_t destroys_before = destroyed_buffer_calls;
+        fail_next_empty_create = 1u;
+        create_calls = 0u;
+        delegated_create_calls = 0u;
+        buffer = UINT64_MAX;
+        CHECK(rindx_d3d11_create_buffer(&device, &buffer_desc, &buffer) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(buffer == 0u && create_calls == 1u &&
+              delegated_create_calls == 0u);
+        CHECK(destroyed_buffer_calls == destroys_before);
+        CHECK(rindx_d3d11_create_buffer(&device, &buffer_desc, &buffer) ==
+              RIN_GPU_OK);
+        CHECK(buffer != 0u && create_calls == 2u &&
+              delegated_create_calls == 1u);
+        CHECK(rindx_d3d11_destroy_object(&device, buffer) == RIN_GPU_OK);
+        CHECK(destroyed_buffer_calls == destroys_before + 1u);
+    }
+
+    {
+        uint32_t destroys_before = destroyed_buffer_calls;
         fail_next_partial_create = 1u;
         create_calls = 0u;
         delegated_create_calls = 0u;
@@ -725,6 +756,25 @@ int main(void)
     CHECK(image != 0u && image_create_calls == 2u &&
           delegated_image_create_calls == 1u);
     CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
+
+    {
+        uint32_t destroys_before = destroyed_image_calls;
+        fail_next_empty_image_create = 1u;
+        image_create_calls = 0u;
+        delegated_image_create_calls = 0u;
+        image = UINT64_MAX;
+        CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
+              RIN_GPU_ERROR_BACKEND);
+        CHECK(image == 0u && image_create_calls == 1u &&
+              delegated_image_create_calls == 0u);
+        CHECK(destroyed_image_calls == destroys_before);
+        CHECK(rindx_d3d11_create_texture2d(&device, &image_desc, &image) ==
+              RIN_GPU_OK);
+        CHECK(image != 0u && image_create_calls == 2u &&
+              delegated_image_create_calls == 1u);
+        CHECK(rindx_d3d11_destroy_object(&device, image) == RIN_GPU_OK);
+        CHECK(destroyed_image_calls == destroys_before + 1u);
+    }
 
     {
         uint32_t destroys_before = destroyed_image_calls;
@@ -930,7 +980,8 @@ int main(void)
           RIN_GPU_OK);
     CHECK(destroyed_graphics_bind_group_calls == 2u);
     CHECK(rindx_d3d11_destroy_object(&device, graphics_pipeline) == RIN_GPU_OK);
-    CHECK(destroyed_graphics_pipeline_calls == 2u);
+    /* The pipeline cache retains the backend object until device teardown. */
+    CHECK(destroyed_graphics_pipeline_calls == 1u);
     CHECK(rindx_d3d11_destroy_object(&device, graphics_storage_image) ==
           RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_object(&device, fragment_graphics_module) ==
@@ -981,7 +1032,8 @@ int main(void)
               delegated_compute_pipeline_create_calls == 2u);
         CHECK(rindx_d3d11_destroy_object(&device, compute_pipeline) ==
               RIN_GPU_OK);
-        CHECK(destroyed_compute_pipeline_calls == destroys_before + 2u);
+        /* The backend object is retained by the pipeline cache. */
+        CHECK(destroyed_compute_pipeline_calls == destroys_before + 1u);
     }
 
     CHECK(rindx_d3d11_create_compute_pipeline(
@@ -1041,6 +1093,8 @@ int main(void)
     CHECK(rindx_d3d11_destroy_context(&immediate_context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_context(&deferred_context) == RIN_GPU_OK);
     CHECK(rindx_d3d11_destroy_device(&device) == RIN_GPU_OK);
+    CHECK(destroyed_graphics_pipeline_calls == 2u);
+    CHECK(destroyed_compute_pipeline_calls == 2u);
     ringpu_software_backend_destroy(backend);
     return 0;
 }
