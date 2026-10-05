@@ -228,6 +228,7 @@ int main(void) {
         DXGI_SWAP_CHAIN_DESC before_failure;
         DXGI_SWAP_CHAIN_DESC after_failure;
         D3D11_TEXTURE2D_DESC buffer_desc_after_failure;
+        D3D11_TEXTURE2D_DESC create_failure_buffer_desc;
         CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &before_failure));
         CHECK(IDXGISwapChain_ResizeBuffers(
                   swapchain, 2u, 65536u, 2u,
@@ -258,6 +259,7 @@ int main(void) {
         D3D11_TEXTURE2D_DESC pressure_desc;
         DXGI_SWAP_CHAIN_DESC before_failure;
         DXGI_SWAP_CHAIN_DESC after_failure;
+        D3D11_TEXTURE2D_DESC create_failure_buffer_desc;
         D3D11_TEXTURE2D_DESC buffer_desc_after_failure;
         UINT pressure_count = 0u;
         int reached_capacity = 0;
@@ -304,6 +306,15 @@ int main(void) {
                   before_failure.BufferDesc.Height &&
               after_failure.BufferDesc.Format ==
                   before_failure.BufferDesc.Format);
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
+        ID3D11Texture2D_GetDesc(backbuffer, &create_failure_buffer_desc);
+        CHECK(create_failure_buffer_desc.Width ==
+                  before_failure.BufferDesc.Width &&
+              create_failure_buffer_desc.Height ==
+                  before_failure.BufferDesc.Height);
+        ID3D11Texture2D_Release(backbuffer);
+        backbuffer = NULL;
         CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
             swapchain, before_failure.BufferCount,
             before_failure.BufferDesc.Width,
@@ -471,6 +482,7 @@ int main(void) {
         D3D12_RESOURCE_DESC pressure_desc;
         DXGI_SWAP_CHAIN_DESC before_failure;
         DXGI_SWAP_CHAIN_DESC after_failure;
+        D3D12_RESOURCE_DESC create_failure_buffer_desc;
         D3D12_RESOURCE_DESC buffer_desc_after_failure;
         UINT pressure_count = 0u;
         int reached_capacity = 0;
@@ -523,6 +535,17 @@ int main(void) {
                   before_failure.BufferDesc.Height &&
               after_failure.BufferDesc.Format ==
                   before_failure.BufferDesc.Format);
+        CHECK_HR(IDXGISwapChain_GetBuffer(
+            d3d12_swapchain, 0u, &IID_ID3D12Resource,
+            (void**)&d3d12_backbuffer));
+        ID3D12Resource_GetDesc(d3d12_backbuffer,
+                               &create_failure_buffer_desc);
+        CHECK(create_failure_buffer_desc.Width ==
+                  before_failure.BufferDesc.Width &&
+              create_failure_buffer_desc.Height ==
+                  before_failure.BufferDesc.Height);
+        ID3D12Resource_Release(d3d12_backbuffer);
+        d3d12_backbuffer = NULL;
         CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
             d3d12_swapchain, before_failure.BufferCount,
             before_failure.BufferDesc.Width,
