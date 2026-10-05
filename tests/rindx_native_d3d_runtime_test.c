@@ -253,6 +253,8 @@ int main(void) {
     {
         ID3D11Texture2D* pressure_resources[512] = {NULL};
         ID3D11Texture2D* pressure_probe = NULL;
+        IDXGIFactory1* failure_factory = NULL;
+        IDXGISwapChain* partial_swapchain = NULL;
         D3D11_TEXTURE2D_DESC pressure_desc;
         DXGI_SWAP_CHAIN_DESC before_failure;
         DXGI_SWAP_CHAIN_DESC after_failure;
@@ -288,6 +290,20 @@ int main(void) {
         pressure_resources[pressure_count] = NULL;
 
         CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &before_failure));
+        CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1,
+                                   (void**)&failure_factory));
+        CHECK(FAILED(IDXGIFactory1_CreateSwapChain(
+            failure_factory, (IUnknown*)swap_device, &swap_desc,
+            &partial_swapchain)));
+        CHECK(partial_swapchain == NULL);
+        CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &after_failure));
+        CHECK(after_failure.BufferCount == before_failure.BufferCount &&
+              after_failure.BufferDesc.Width ==
+                  before_failure.BufferDesc.Width &&
+              after_failure.BufferDesc.Height ==
+                  before_failure.BufferDesc.Height &&
+              after_failure.BufferDesc.Format ==
+                  before_failure.BufferDesc.Format);
         CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
             swapchain, before_failure.BufferCount,
             before_failure.BufferDesc.Width,
@@ -316,6 +332,8 @@ int main(void) {
         CHECK(pressure_probe != NULL);
         ID3D11Texture2D_Release(pressure_probe);
         pressure_probe = NULL;
+        IDXGIFactory1_Release(failure_factory);
+        failure_factory = NULL;
         while (pressure_count != 0u) {
             --pressure_count;
             ID3D11Texture2D_Release(pressure_resources[pressure_count]);
@@ -447,6 +465,8 @@ int main(void) {
     {
         ID3D12Resource* pressure_resources[512] = {NULL};
         ID3D12Resource* pressure_probe = NULL;
+        IDXGIFactory1* failure_factory = NULL;
+        IDXGISwapChain* partial_swapchain = NULL;
         D3D12_HEAP_PROPERTIES pressure_heap;
         D3D12_RESOURCE_DESC pressure_desc;
         DXGI_SWAP_CHAIN_DESC before_failure;
@@ -489,6 +509,20 @@ int main(void) {
         pressure_resources[pressure_count] = NULL;
 
         CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &before_failure));
+        CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1,
+                                   (void**)&failure_factory));
+        CHECK(FAILED(IDXGIFactory1_CreateSwapChain(
+            failure_factory, (IUnknown*)d3d12_queue, &swap_desc,
+            &partial_swapchain)));
+        CHECK(partial_swapchain == NULL);
+        CHECK_HR(IDXGISwapChain_GetDesc(d3d12_swapchain, &after_failure));
+        CHECK(after_failure.BufferCount == before_failure.BufferCount &&
+              after_failure.BufferDesc.Width ==
+                  before_failure.BufferDesc.Width &&
+              after_failure.BufferDesc.Height ==
+                  before_failure.BufferDesc.Height &&
+              after_failure.BufferDesc.Format ==
+                  before_failure.BufferDesc.Format);
         CHECK(FAILED(IDXGISwapChain_ResizeBuffers(
             d3d12_swapchain, before_failure.BufferCount,
             before_failure.BufferDesc.Width,
@@ -521,6 +555,8 @@ int main(void) {
         CHECK(pressure_probe != NULL);
         ID3D12Resource_Release(pressure_probe);
         pressure_probe = NULL;
+        IDXGIFactory1_Release(failure_factory);
+        failure_factory = NULL;
         while (pressure_count != 0u) {
             --pressure_count;
             ID3D12Resource_Release(pressure_resources[pressure_count]);
