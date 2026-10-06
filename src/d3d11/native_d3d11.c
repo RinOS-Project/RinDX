@@ -3296,6 +3296,9 @@ static HRESULT WINAPI native_swapchain_resize_target(
     LONG_PTR menu_present;
     LONG client_width;
     LONG client_height;
+    LONG original_client_width;
+    LONG original_client_height;
+    RECT restored_window_rect;
     if (!mode || mode->Width == 0u || mode->Height == 0u ||
         mode->Width > (UINT)LONG_MAX || mode->Height > (UINT)LONG_MAX)
         return E_INVALIDARG;
@@ -3309,6 +3312,8 @@ static HRESULT WINAPI native_swapchain_resize_target(
         !GetWindowRect(swapchain->window, &window_rect) ||
         !GetClientRect(swapchain->window, &client_rect))
         return E_INVALIDARG;
+    original_client_width = client_rect.right - client_rect.left;
+    original_client_height = client_rect.bottom - client_rect.top;
 
     style = (DWORD)GetWindowLongPtrA(swapchain->window, GWL_STYLE);
     extended_style = (DWORD)GetWindowLongPtrA(swapchain->window,
@@ -3336,7 +3341,17 @@ static HRESULT WINAPI native_swapchain_resize_target(
             window_rect.right - window_rect.left,
             window_rect.bottom - window_rect.top,
             SWP_NOZORDER | SWP_NOACTIVATE);
-        return restored ? DXGI_ERROR_INVALID_CALL : E_FAIL;
+        if (!restored ||
+            !GetWindowRect(swapchain->window, &restored_window_rect) ||
+            !GetClientRect(swapchain->window, &client_rect) ||
+            restored_window_rect.left != window_rect.left ||
+            restored_window_rect.top != window_rect.top ||
+            restored_window_rect.right != window_rect.right ||
+            restored_window_rect.bottom != window_rect.bottom ||
+            client_rect.right - client_rect.left != original_client_width ||
+            client_rect.bottom - client_rect.top != original_client_height)
+            return E_FAIL;
+        return DXGI_ERROR_INVALID_CALL;
     }
     return S_OK;
 }

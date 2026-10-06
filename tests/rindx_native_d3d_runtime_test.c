@@ -48,12 +48,15 @@ static int native_test_resource_desc(ID3D12Resource* resource,
 }
 
 static int g_reject_large_window_resize;
+static int g_clamp_every_window_resize;
 
 static LRESULT CALLBACK test_window_proc(HWND window, UINT message,
                                          WPARAM wparam, LPARAM lparam) {
-    if (message == WM_WINDOWPOSCHANGING && g_reject_large_window_resize) {
+    if (message == WM_WINDOWPOSCHANGING &&
+        (g_reject_large_window_resize || g_clamp_every_window_resize)) {
         WINDOWPOS* position = (WINDOWPOS*)lparam;
-        if (position->cx > 500 && position->cy > 400)
+        if (g_clamp_every_window_resize ||
+            (position->cx > 500 && position->cy > 400))
             position->cx = 500;
     }
     if (message == WM_DESTROY) PostQuitMessage(0);
@@ -228,6 +231,19 @@ int main(void) {
         CHECK(GetClientRect(window, &client_rect));
         CHECK(client_rect.right - client_rect.left == original_client_width &&
               client_rect.bottom - client_rect.top == original_client_height);
+        g_clamp_every_window_resize = 1;
+        CHECK(IDXGISwapChain_ResizeTarget(swapchain, &target_mode) == E_FAIL);
+        g_clamp_every_window_resize = 0;
+        CHECK(GetClientRect(window, &client_rect));
+        CHECK(client_rect.right - client_rect.left != original_client_width);
+        target_mode.Width = (UINT)original_client_width;
+        target_mode.Height = (UINT)original_client_height;
+        CHECK_HR(IDXGISwapChain_ResizeTarget(swapchain, &target_mode));
+        CHECK(GetClientRect(window, &client_rect));
+        CHECK(client_rect.right - client_rect.left == original_client_width &&
+              client_rect.bottom - client_rect.top == original_client_height);
+        target_mode.Width = 640u;
+        target_mode.Height = 480u;
         CHECK_HR(IDXGISwapChain_ResizeTarget(swapchain, &target_mode));
         CHECK(GetClientRect(window, &client_rect));
         CHECK(client_rect.right - client_rect.left == 640 &&
