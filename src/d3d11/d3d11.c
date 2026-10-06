@@ -100,10 +100,11 @@ int rindx_d3d11_create_device(
 {
     RinGpuQueueDescV1 queue_desc;
     int result;
-    if (!desc || !device_out || !feature_level_requested(
-            requested_feature_levels, feature_level_count))
-        return RIN_GPU_ERROR_INVALID_ARGUMENT;
+    if (!device_out) return RIN_GPU_ERROR_INVALID_ARGUMENT;
     memset(device_out, 0, sizeof(*device_out));
+    if (!desc || !feature_level_requested(requested_feature_levels,
+                                          feature_level_count))
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
     result = ringpu_runtime_create(desc, &device_out->runtime);
     if (result != RIN_GPU_OK) return result;
     memset(&queue_desc, 0, sizeof(queue_desc));
@@ -169,10 +170,12 @@ int rindx_d3d11_create_device_and_swapchain(
 {
     int result;
     int swapchain_result;
-    if (!desc || !swapchain_desc || !window_owner ||
-        !presentation_backend || !device_out || !swapchain_out)
+    if (device_out) memset(device_out, 0, sizeof(*device_out));
+    if (swapchain_out) memset(swapchain_out, 0, sizeof(*swapchain_out));
+    if (!device_out || !swapchain_out)
         return RIN_GPU_ERROR_INVALID_ARGUMENT;
-    memset(swapchain_out, 0, sizeof(*swapchain_out));
+    if (!desc || !swapchain_desc || !window_owner || !presentation_backend)
+        return RIN_GPU_ERROR_INVALID_ARGUMENT;
     result = rindx_d3d11_create_device(desc, requested_feature_levels,
                                        feature_level_count, device_out);
     if (result != RIN_GPU_OK) return result;

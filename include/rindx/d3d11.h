@@ -80,13 +80,16 @@ typedef struct RinDxD3d11MappedResource {
  * DXBC/DXIL pointer. A host caller may select the explicit reference backend;
  * a physical owner passes its admitted backend operation table through the
  * same descriptor. No backend is substituted by this API. */
+/* A non-NULL device_out is zeroed before the remaining arguments are
+ * checked. */
 int rindx_d3d11_create_device(
     const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d11Device* device_out);
 /* Bounded host CreateDeviceAndSwapChain sequencing. The swapchain remains the
  * existing versioned RinDX presentation owner; native HWND/COM back-buffer
- * identity is not inferred from this entry point. */
+ * identity is not inferred from this entry point. Each non-NULL output is
+ * zeroed before validating the other arguments. */
 int rindx_d3d11_create_device_and_swapchain(
     const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,

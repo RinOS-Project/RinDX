@@ -82,13 +82,16 @@ typedef struct RinDxD3d12CommandList {
  * readback calls all lower to RinGPU operations. Native D3D12 COM/DLL and
  * DXIL/root-signature translation must validate and lower into this owner;
  * the descriptor may select the reference or an admitted physical backend. */
+/* A non-NULL device_out is zeroed before the remaining arguments are
+ * checked. */
 int rindx_d3d12_create_device(
     const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,
     RinDxD3d12Device* device_out);
 /* Bounded host CreateDeviceAndSwapChain sequencing. The swapchain remains the
  * existing versioned RinDX presentation owner; native HWND/COM back-buffer
- * identity is not inferred from this entry point. */
+ * identity is not inferred from this entry point. Each non-NULL output is
+ * zeroed before validating the other arguments. */
 int rindx_d3d12_create_device_and_swapchain(
     const RinGpuRuntimeDescV1* desc,
     const uint32_t* requested_feature_levels, uint32_t feature_level_count,

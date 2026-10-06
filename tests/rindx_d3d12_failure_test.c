@@ -597,6 +597,48 @@ int main(void)
     ops.wait_for_completion = injected_wait;
     make_runtime_desc(&runtime_desc, &ops, backend);
 
+    {
+        const uint32_t unsupported_feature_level = 0u;
+        const RinDxD3d12Device zero_device = {0};
+        memset(&device, 0xa5, sizeof(device));
+        CHECK(rindx_d3d12_create_device(NULL, &feature_level, 1u, &device) ==
+              RIN_GPU_ERROR_INVALID_ARGUMENT);
+        CHECK(memcmp(&device, &zero_device, sizeof(device)) == 0);
+        memset(&swapchain_device, 0xa5, sizeof(swapchain_device));
+        CHECK(rindx_d3d12_create_device_and_swapchain(
+                  NULL, NULL, 0u, NULL, NULL, NULL, &swapchain_device,
+                  NULL) == RIN_GPU_ERROR_INVALID_ARGUMENT);
+        CHECK(memcmp(&swapchain_device, &zero_device,
+                     sizeof(swapchain_device)) == 0);
+        memset(&swapchain_runtime, 0xa5, sizeof(swapchain_runtime));
+        CHECK(rindx_d3d12_create_device_and_swapchain(
+                  NULL, NULL, 0u, NULL, NULL, NULL, NULL,
+                  &swapchain_runtime) == RIN_GPU_ERROR_INVALID_ARGUMENT);
+        {
+            const RinGpuDxgiSwapchainRuntime zero_swapchain_runtime = {0};
+            CHECK(memcmp(&swapchain_runtime, &zero_swapchain_runtime,
+                         sizeof(swapchain_runtime)) == 0);
+        }
+        memset(&device, 0xa5, sizeof(device));
+        CHECK(rindx_d3d12_create_device(
+                  &runtime_desc, &unsupported_feature_level, 1u, &device) ==
+              RIN_GPU_ERROR_INVALID_ARGUMENT);
+        CHECK(memcmp(&device, &zero_device, sizeof(device)) == 0);
+        memset(&swapchain_device, 0xa5, sizeof(swapchain_device));
+        memset(&swapchain_runtime, 0xa5, sizeof(swapchain_runtime));
+        CHECK(rindx_d3d12_create_device_and_swapchain(
+                  NULL, NULL, 0u, NULL, NULL, NULL, &swapchain_device,
+                  &swapchain_runtime) == RIN_GPU_ERROR_INVALID_ARGUMENT);
+        {
+            const RinDxD3d12Device zero_swapchain_device = {0};
+            const RinGpuDxgiSwapchainRuntime zero_swapchain_runtime = {0};
+            CHECK(memcmp(&swapchain_device, &zero_swapchain_device,
+                         sizeof(swapchain_device)) == 0);
+            CHECK(memcmp(&swapchain_runtime, &zero_swapchain_runtime,
+                         sizeof(swapchain_runtime)) == 0);
+        }
+    }
+
     rindx_swapchain_test_make_inputs(&swapchain_desc, &window_owner,
                                      &presentation_backend, &owner_probe);
     owner_probe.fail_validation = 1;
