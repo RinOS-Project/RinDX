@@ -18,6 +18,7 @@
 
 #include <rindx/d3d11.h>
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -3286,10 +3287,57 @@ static HRESULT WINAPI native_swapchain_resize_buffers(
 static HRESULT WINAPI native_swapchain_resize_target(
     IDXGISwapChain* self, const DXGI_MODE_DESC* mode) {
     NativeD3d11Swapchain* swapchain = native_swapchain_from_interface(self);
+    DXGI_MODE_DESC replacement;
+    RECT window_rect;
+    RECT client_rect;
+    RECT adjusted_rect;
+    DWORD style;
+    DWORD extended_style;
+    LONG_PTR menu_present;
+    LONG client_width;
+    LONG client_height;
     if (!mode || mode->Width == 0u || mode->Height == 0u ||
-        native_dxgi_image_format(mode->Format) == 0u)
+        mode->Width > (UINT)LONG_MAX || mode->Height > (UINT)LONG_MAX)
         return E_INVALIDARG;
-    swapchain->desc.BufferDesc = *mode;
+    if (!swapchain->desc.Windowed)
+        return DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
+    replacement = *mode;
+    if (replacement.Format == DXGI_FORMAT_UNKNOWN)
+        replacement.Format = swapchain->desc.BufferDesc.Format;
+    if (native_dxgi_image_format(replacement.Format) == 0u ||
+        !IsWindow(swapchain->window) ||
+        !GetWindowRect(swapchain->window, &window_rect) ||
+        !GetClientRect(swapchain->window, &client_rect))
+        return E_INVALIDARG;
+
+    style = (DWORD)GetWindowLongPtrA(swapchain->window, GWL_STYLE);
+    extended_style = (DWORD)GetWindowLongPtrA(swapchain->window,
+                                               GWL_EXSTYLE);
+    menu_present = (LONG_PTR)GetMenu(swapchain->window);
+    adjusted_rect.left = 0;
+    adjusted_rect.top = 0;
+    adjusted_rect.right = (LONG)replacement.Width;
+    adjusted_rect.bottom = (LONG)replacement.Height;
+    if (!AdjustWindowRectEx(&adjusted_rect, style,
+                            menu_present != 0, extended_style))
+        return E_INVALIDARG;
+    client_width = adjusted_rect.right - adjusted_rect.left;
+    client_height = adjusted_rect.bottom - adjusted_rect.top;
+    if (client_width <= 0 || client_height <= 0 ||
+        !SetWindowPos(swapchain->window, NULL, window_rect.left,
+                      window_rect.top, client_width, client_height,
+                      SWP_NOZORDER | SWP_NOACTIVATE))
+        return E_FAIL;
+    if (!GetClientRect(swapchain->window, &client_rect) ||
+        client_rect.right - client_rect.left != (LONG)replacement.Width ||
+        client_rect.bottom - client_rect.top != (LONG)replacement.Height) {
+        const BOOL restored = SetWindowPos(
+            swapchain->window, NULL, window_rect.left, window_rect.top,
+            window_rect.right - window_rect.left,
+            window_rect.bottom - window_rect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        return restored ? DXGI_ERROR_INVALID_CALL : E_FAIL;
+    }
     return S_OK;
 }
 static HRESULT WINAPI native_swapchain_get_containing_output(

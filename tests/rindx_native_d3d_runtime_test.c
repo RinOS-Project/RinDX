@@ -130,7 +130,7 @@ int main(void) {
     window_class.lpszClassName = "RinDXNativeSwapchainTest";
     CHECK(RegisterClassA(&window_class) != 0u);
     window = CreateWindowExA(0u, window_class.lpszClassName, "RinDX",
-                             WS_OVERLAPPEDWINDOW, 0, 0, 2, 2, NULL, NULL,
+                             WS_OVERLAPPEDWINDOW, 0, 0, 320, 240, NULL, NULL,
                              window_class.hInstance, NULL);
     CHECK(window != NULL);
 
@@ -203,6 +203,33 @@ int main(void) {
         NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
         D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
         &swap_context));
+    {
+        DXGI_MODE_DESC target_mode = swap_desc.BufferDesc;
+        DXGI_SWAP_CHAIN_DESC observed_desc;
+        RECT client_rect;
+        LONG original_client_width;
+        LONG original_client_height;
+        CHECK(GetClientRect(window, &client_rect));
+        original_client_width = client_rect.right - client_rect.left;
+        original_client_height = client_rect.bottom - client_rect.top;
+        target_mode.Width = 640u;
+        target_mode.Height = 480u;
+        CHECK_HR(IDXGISwapChain_ResizeTarget(swapchain, &target_mode));
+        CHECK(GetClientRect(window, &client_rect));
+        CHECK(client_rect.right - client_rect.left == 640 &&
+              client_rect.bottom - client_rect.top == 480);
+        CHECK_HR(IDXGISwapChain_GetDesc(swapchain, &observed_desc));
+        CHECK(observed_desc.BufferDesc.Width ==
+                  swap_desc.BufferDesc.Width &&
+              observed_desc.BufferDesc.Height ==
+                  swap_desc.BufferDesc.Height);
+        target_mode.Width = (UINT)original_client_width;
+        target_mode.Height = (UINT)original_client_height;
+        CHECK_HR(IDXGISwapChain_ResizeTarget(swapchain, &target_mode));
+        CHECK(GetClientRect(window, &client_rect));
+        CHECK(client_rect.right - client_rect.left == original_client_width &&
+              client_rect.bottom - client_rect.top == original_client_height);
+    }
     CHECK_HR(CreateDXGIFactory1(&IID_IDXGIFactory1, (void**)&factory));
     {
         BYTE private_value = 0x5au;
@@ -246,6 +273,12 @@ int main(void) {
     factory = NULL;
     CHECK_HR(IDXGISwapChain_GetBuffer(
         swapchain, 0u, &IID_ID3D11Texture2D, (void**)&backbuffer));
+    {
+        D3D11_TEXTURE2D_DESC target_resize_buffer_desc;
+        ID3D11Texture2D_GetDesc(backbuffer, &target_resize_buffer_desc);
+        CHECK(target_resize_buffer_desc.Width == 2u &&
+              target_resize_buffer_desc.Height == 2u);
+    }
     CHECK_HR(ID3D11Device_CreateRenderTargetView(
         swap_device, (ID3D11Resource*)backbuffer, NULL, &render_target));
     ID3D11DeviceContext_OMSetRenderTargets(swap_context, 1u, &render_target,
