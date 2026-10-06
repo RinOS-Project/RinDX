@@ -181,6 +181,15 @@ int main(void) {
         &swap_context) == DXGI_ERROR_UNSUPPORTED);
     CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL &&
           level == 0u);
+    swap_desc.BufferCount = (UINT)~0u;
+    level = D3D_FEATURE_LEVEL_10_0;
+    CHECK(D3D11CreateDeviceAndSwapChain(
+        NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
+        D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
+        &swap_context) == E_INVALIDARG);
+    CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL &&
+          level == 0u);
+    swap_desc.BufferCount = 2u;
     CHECK_HR(D3D11CreateDeviceAndSwapChain(
         NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
         D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,

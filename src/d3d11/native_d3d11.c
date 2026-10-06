@@ -3508,6 +3508,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
     if (!swapchain) {
         ID3D11DeviceContext_Release(context);
         ID3D11Device_Release(device);
+        if (feature_level_out) *feature_level_out = 0;
         return E_OUTOFMEMORY;
     }
     swapchain->iface.lpVtbl = (IDXGISwapChainVtbl*)(void*)&native_swapchain_vtable;
@@ -3522,6 +3523,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
         free(swapchain);
         ID3D11DeviceContext_Release(context);
         ID3D11Device_Release(device);
+        if (feature_level_out) *feature_level_out = 0;
         return E_INVALIDARG;
     }
     swapchain->desc.BufferCount = buffer_count;
@@ -3570,6 +3572,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
         free(swapchain);
         ID3D11DeviceContext_Release(context);
         ID3D11Device_Release(device);
+        if (feature_level_out) *feature_level_out = 0;
         return result;
     }
     result = native_swapchain_create_buffers(swapchain);
@@ -3579,6 +3582,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
         free(swapchain);
         ID3D11DeviceContext_Release(context);
         ID3D11Device_Release(device);
+        if (feature_level_out) *feature_level_out = 0;
         return result;
     }
     ID3D11Device_AddRef(device);
