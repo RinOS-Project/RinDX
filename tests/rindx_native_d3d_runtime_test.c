@@ -35,6 +35,18 @@ static int descriptor_heap_cpu_handle(
 #endif
 }
 
+static int native_test_resource_desc(ID3D12Resource* resource,
+                                     D3D12_RESOURCE_DESC* desc)
+{
+    if (resource == NULL || desc == NULL) return 0;
+#if defined(__MINGW32__)
+    return resource->lpVtbl->GetDesc(resource, desc) == desc;
+#else
+    *desc = ID3D12Resource_GetDesc(resource);
+    return 1;
+#endif
+}
+
 static LRESULT CALLBACK test_window_proc(HWND window, UINT message,
                                          WPARAM wparam, LPARAM lparam) {
     if (message == WM_DESTROY) PostQuitMessage(0);
@@ -66,6 +78,8 @@ int main(void) {
     ID3D11DeviceContext* d3d11_context = NULL;
     ID3D11Buffer* buffer = NULL;
     D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
+    const D3D_FEATURE_LEVEL hardware_feature_level = D3D_FEATURE_LEVEL_10_0;
+    const D3D_FEATURE_LEVEL warp_feature_level = D3D_FEATURE_LEVEL_11_0;
     D3D11_BUFFER_DESC buffer_desc;
     D3D11_MAPPED_SUBRESOURCE mapped;
     ID3D12Device* d3d12_device = NULL;
@@ -121,12 +135,12 @@ int main(void) {
     CHECK(window != NULL);
 
     CHECK(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u,
-                            &level, 1u, D3D11_SDK_VERSION,
+                            &hardware_feature_level, 1u, D3D11_SDK_VERSION,
                             &d3d11_device, &level, &d3d11_context) ==
           DXGI_ERROR_UNSUPPORTED);
-    CHECK(d3d11_device == NULL && d3d11_context == NULL);
+    CHECK(d3d11_device == NULL && d3d11_context == NULL && level == 0u);
     CHECK_HR(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u,
-                               &level, 1u, D3D11_SDK_VERSION,
+                               &warp_feature_level, 1u, D3D11_SDK_VERSION,
                                &d3d11_device, &level, &d3d11_context));
     CHECK(d3d11_device != NULL && d3d11_context != NULL);
     CHECK(ID3D11Device_GetFeatureLevel(d3d11_device) == D3D_FEATURE_LEVEL_11_0);
@@ -160,11 +174,13 @@ int main(void) {
     swap_desc.OutputWindow = window;
     swap_desc.Windowed = TRUE;
     swap_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    level = D3D_FEATURE_LEVEL_10_0;
     CHECK(D3D11CreateDeviceAndSwapChain(
         NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u, NULL, 0u,
         D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
         &swap_context) == DXGI_ERROR_UNSUPPORTED);
-    CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL);
+    CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL &&
+          level == 0u);
     CHECK_HR(D3D11CreateDeviceAndSwapChain(
         NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
         D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
@@ -464,8 +480,8 @@ int main(void) {
         CHECK_HR(IDXGISwapChain_GetBuffer(
             d3d12_swapchain, 0u, &IID_ID3D12Resource,
             (void**)&d3d12_backbuffer));
-        ID3D12Resource_GetDesc(d3d12_backbuffer,
-                               &buffer_desc_after_failure);
+        CHECK(native_test_resource_desc(d3d12_backbuffer,
+                                        &buffer_desc_after_failure));
         CHECK(buffer_desc_after_failure.Width ==
                   before_failure.BufferDesc.Width &&
               buffer_desc_after_failure.Height ==
@@ -538,8 +554,8 @@ int main(void) {
         CHECK_HR(IDXGISwapChain_GetBuffer(
             d3d12_swapchain, 0u, &IID_ID3D12Resource,
             (void**)&d3d12_backbuffer));
-        ID3D12Resource_GetDesc(d3d12_backbuffer,
-                               &create_failure_buffer_desc);
+        CHECK(native_test_resource_desc(d3d12_backbuffer,
+                                        &create_failure_buffer_desc));
         CHECK(create_failure_buffer_desc.Width ==
                   before_failure.BufferDesc.Width &&
               create_failure_buffer_desc.Height ==
@@ -562,8 +578,8 @@ int main(void) {
         CHECK_HR(IDXGISwapChain_GetBuffer(
             d3d12_swapchain, 0u, &IID_ID3D12Resource,
             (void**)&d3d12_backbuffer));
-        ID3D12Resource_GetDesc(d3d12_backbuffer,
-                               &buffer_desc_after_failure);
+        CHECK(native_test_resource_desc(d3d12_backbuffer,
+                                        &buffer_desc_after_failure));
         CHECK(buffer_desc_after_failure.Width ==
                   before_failure.BufferDesc.Width &&
               buffer_desc_after_failure.Height ==

@@ -3417,6 +3417,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDevice(
     NativeD3d11Device* device;
     int result;
     if (device_out) *device_out = NULL;
+    if (feature_level_out) *feature_level_out = 0;
     if (context_out) *context_out = NULL;
     if (sdk_version != D3D11_SDK_VERSION || !device_out) return E_INVALIDARG;
     if (software != NULL) return DXGI_ERROR_UNSUPPORTED;
@@ -3488,6 +3489,7 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
     uint32_t format;
     if (swap_chain_out) *swap_chain_out = NULL;
     if (device_out) *device_out = NULL;
+    if (feature_level_out) *feature_level_out = 0;
     if (context_out) *context_out = NULL;
     if (!swap_chain_desc || !swap_chain_out || !device_out ||
         !swap_chain_desc->OutputWindow ||
