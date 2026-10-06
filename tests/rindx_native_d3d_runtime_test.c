@@ -47,8 +47,15 @@ static int native_test_resource_desc(ID3D12Resource* resource,
 #endif
 }
 
+static int g_reject_large_window_resize;
+
 static LRESULT CALLBACK test_window_proc(HWND window, UINT message,
                                          WPARAM wparam, LPARAM lparam) {
+    if (message == WM_WINDOWPOSCHANGING && g_reject_large_window_resize) {
+        WINDOWPOS* position = (WINDOWPOS*)lparam;
+        if (position->cx > 500 && position->cy > 400)
+            position->cx = 500;
+    }
     if (message == WM_DESTROY) PostQuitMessage(0);
     return DefWindowProcA(window, message, wparam, lparam);
 }
@@ -214,6 +221,13 @@ int main(void) {
         original_client_height = client_rect.bottom - client_rect.top;
         target_mode.Width = 640u;
         target_mode.Height = 480u;
+        g_reject_large_window_resize = 1;
+        CHECK(IDXGISwapChain_ResizeTarget(swapchain, &target_mode) ==
+              DXGI_ERROR_INVALID_CALL);
+        g_reject_large_window_resize = 0;
+        CHECK(GetClientRect(window, &client_rect));
+        CHECK(client_rect.right - client_rect.left == original_client_width &&
+              client_rect.bottom - client_rect.top == original_client_height);
         CHECK_HR(IDXGISwapChain_ResizeTarget(swapchain, &target_mode));
         CHECK(GetClientRect(window, &client_rect));
         CHECK(client_rect.right - client_rect.left == 640 &&
