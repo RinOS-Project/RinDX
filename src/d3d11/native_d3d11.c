@@ -3340,7 +3340,8 @@ HRESULT rindx_native_d3d11_create_swapchain_for_device(
     if (format == 0u || swap_chain_desc->BufferDesc.Width == 0u ||
         swap_chain_desc->BufferDesc.Height == 0u ||
         (swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_DISCARD &&
-         swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL))
+         swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) ||
+        (swap_chain_desc->Flags & ~DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0u)
         return E_INVALIDARG;
     buffer_count = swap_chain_desc->BufferCount == 0u
         ? RIN_GPU_DXGI_SWAPCHAIN_MIN_BUFFERS : swap_chain_desc->BufferCount;
@@ -3498,7 +3499,8 @@ RINDX_NATIVE_EXPORT HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
     if (format == 0u || swap_chain_desc->BufferDesc.Width == 0u ||
         swap_chain_desc->BufferDesc.Height == 0u ||
         (swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_DISCARD &&
-         swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL))
+         swap_chain_desc->SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) ||
+        (swap_chain_desc->Flags & ~DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0u)
         return E_INVALIDARG;
     result = D3D11CreateDevice(adapter, driver_type, software, flags,
                                feature_levels, feature_count, sdk_version,

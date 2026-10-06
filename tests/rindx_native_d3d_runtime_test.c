@@ -174,6 +174,15 @@ int main(void) {
     swap_desc.OutputWindow = window;
     swap_desc.Windowed = TRUE;
     swap_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    swap_desc.Flags = DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE;
+    level = D3D_FEATURE_LEVEL_10_0;
+    CHECK(D3D11CreateDeviceAndSwapChain(
+        NULL, D3D_DRIVER_TYPE_WARP, NULL, 0u, NULL, 0u,
+        D3D11_SDK_VERSION, &swap_desc, &swapchain, &swap_device, &level,
+        &swap_context) == E_INVALIDARG);
+    CHECK(swapchain == NULL && swap_device == NULL && swap_context == NULL &&
+          level == 0u);
+    swap_desc.Flags = 0u;
     level = D3D_FEATURE_LEVEL_10_0;
     CHECK(D3D11CreateDeviceAndSwapChain(
         NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0u, NULL, 0u,
@@ -221,6 +230,12 @@ int main(void) {
         CHECK(private_size == sizeof(private_value) &&
               private_readback == private_value);
     }
+    swap_desc.Flags = DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE;
+    CHECK(IDXGIFactory1_CreateSwapChain(
+        factory, (IUnknown*)swap_device, &swap_desc, &factory_swapchain) ==
+          E_INVALIDARG);
+    CHECK(factory_swapchain == NULL);
+    swap_desc.Flags = 0u;
     CHECK_HR(IDXGIFactory1_CreateSwapChain(
         factory, (IUnknown*)swap_device, &swap_desc, &factory_swapchain));
     IDXGISwapChain_Release(factory_swapchain);
