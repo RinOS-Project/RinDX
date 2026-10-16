@@ -39,12 +39,7 @@ static int native_test_resource_desc(ID3D12Resource* resource,
                                      D3D12_RESOURCE_DESC* desc)
 {
     if (resource == NULL || desc == NULL) return 0;
-#if defined(__MINGW32__)
     return resource->lpVtbl->GetDesc(resource, desc) == desc;
-#else
-    *desc = ID3D12Resource_GetDesc(resource);
-    return 1;
-#endif
 }
 
 static int g_reject_large_window_resize;

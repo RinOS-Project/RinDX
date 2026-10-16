@@ -45,6 +45,9 @@ if(WIN32)
         src/dxgi/com.c
         src/provider_win32.c
         src/native_exports.def)
+    # Windows provider discovery uses the SDK name exactly; MinGW's default
+    # `lib` prefix is not part of a Windows DLL's module name.
+    set_target_properties(RinDXNative PROPERTIES PREFIX "")
     target_compile_features(RinDXNative PRIVATE c_std_11)
     target_compile_definitions(RinDXNative PRIVATE RINDX_BUILD_DLL=1)
     target_include_directories(RinDXNative PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
